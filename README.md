@@ -71,3 +71,7 @@ from which the adjustment was made will be specified by the folder we put it in.
 
 ## list of files to move and where (try without adjusting if you are using a more recent version of the relevant packages)
     (currently no need for any because spikeinterface fixed the silence_periods bug in the most recent version)
+
+
+## Authorship
+This repo began as a copy of https://github.com/JeffreyBoucher/neuropixels_chronic_spikesorting_Bizley (copied October 2026), and was moved into the Bizley Lab org to allow wider collaboration. Jeffrey can be assumed to be the author unless otherwise stated (or an external package such as CatGT).
