@@ -1,0 +1,10 @@
+*.log
+*.csv
+*.bin
+*.avi
+*.xlsx
+*.png
+*.tiff
+*.ipynb
+
+./src
