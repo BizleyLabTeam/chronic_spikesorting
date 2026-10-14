@@ -7,4 +7,5 @@
 *.tiff
 *.ipynb
 
-./src
+src
+config/personal

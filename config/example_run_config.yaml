@@ -1,0 +1,66 @@
+# This config will hold all parameters relevant to actually running the spikesorting and unit match
+# but data directories will be kept separate (so that for example you could share a run.yaml with a colleage
+# who may want to use that run.yaml but with their own data)
+
+# spikesort_folder.main()
+## these are a bunch of parameters you should set before running spikesorting which are hopefully named in a self-explanatory way.
+saveMultirecInfoFile = True ### whether to save metadata. You'll only want to turn it off if you are testing a thing and don't want to overwrite an old file or something...
+overwriteRaw = False # determines if you recreate a raw that is already detected. Set to true if you want to remake it, false otherwise.
+overwriteChanMap = True # determines whether you overwrite the channel map. In my opinion this should always be on.
+overwriteSpikesorting = False # determines whether you redo spikesortings that are already done. Overwrite when you try new things, don't sh
+createCompressed = False # determines whether you create compressed raw. Good to do if you need the space, but all processing requires unpacking it.
+doSpikeSorting = True
+copyAuxData = False
+overwriteAuxData = False
+saveLFP = True ### saves an additional raw file which is focused on the LFP. Will be downsampled to 1000 Hz
+overwriteLFP = True
+
+rawFolderName # line 99 - possibly not something we want hard coded
+
+
+
+############ all_VE_config ###########
+###### Override variables; default to off unless you turn them on.
+SurveyOverride = False
+useBugFixedSilencePeriods = False
+
+# the below are parameters you may want to keep. If you don't, make your own and name it something else.
+sessionwiseDriftCorrectionArguments = 'JeffreyRecommended'
+generalSpikesortingArguments = 'JeffreyRecommended'
+withinSessionSpikesortingArguments = 'JeffreyRecommended'
+plottingArguments = 'JeffreyRecommended'
+make_multirecording_info = 'JeffreyRecommended'
+runOneSessionSetOldStyle = False ### if False, ignores everything but the paths and the ferret, and instead builds out a list of session sets to do sequentially.
+doMultipleShanks = True # this will never not be true and I'll move it elsewhere pretty soon. Because even with one shank, you want to treat it as multiple.
+
+
+####### outerLoopConfigs #########
+
+# these should be able to be set to relative paths within the repo since they're literally in the repo -- VT 10.2026
+catgt_location = Path('C:/Users/jeff/PycharmProjects/neuropixels_chronic_spikesorting_Bizley/CatGT-win') # should be local to the VE, but absolute paths are nice.
+OverStrike_location = Path('C:/Users/jeff/PycharmProjects/neuropixels_chronic_spikesorting_Bizley/OverStrike-win')
+
+# the below are highly likely to be not actually used, and note the SI import which ideally we could phase out... -- VT 10.2026
+desired_n_jobs = 1 #16 # this is where you can set up parallel processing. -1 for all available cores. Sometimes some code breaks when you try to parallel process; you can set to 1 to bypass those problems in exchange for things running slow.
+si.set_global_job_kwargs(n_jobs=desired_n_jobs)
+doRemoveBadChannels = 1  # currently uses the manual list... I doubt you'll ever want to turn this off.
+skipStuffThatKSGUIDoes = 1  # this variable is fundamentally outdated at this point and will either be irrelevant if you see this, or deleted if you don't.
+beginningAndEndToCutOff = [1, 1] ### saturation cutoff handling, for beginning and end
+loadSatsFromFile = 1 # allow loading saturations from file vs always recalculating
+doSaturationReplace = True
+
+bin_s_sessionCat = 6.0 # 6 is best. It is the only way I've managed to get something that looks good. Possibly eventually we will want to do this per-week though.
+silenceOrNoiseReplace_sessionwise = 'zeros' # zeros is significantly faster, 'noise' makes more sense theoretically but practically doesn't seem much different. Might work better with new SI version?
+if silenceOrNoiseReplace_sessionwise == 'silence': silenceOrNoiseReplace = 'zeros' # foolproofing
+
+silenceOrNoiseReplace_within = 'zeros' # have not systematically evaluated differences wrt spikesorting.
+if silenceOrNoiseReplace_within == 'silence': silenceOrNoiseReplace = 'zeros' # foolproofing
+
+
+doPreprocessing = 0 # if you want to load your drift maps without recalculating them, turn this off.
+savePreprocessing = 1
+overwritePreprocessing = 1
+resaveMotionIfLoadingPreprocessing = 0 # if you turn off preprocessing, you can either resave new motion correction stuff or not. Kept off by default for safety.
+checkMotionPlotsOnline = 0 # turn this off if you don't want to view the plots.
+calculateSessionMotionDisplacement = 1 # Decides whether to calculate motion displacement when running get_drift_per_session. Should never not be on.
+testingThings = 0
