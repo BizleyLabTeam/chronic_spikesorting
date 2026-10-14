@@ -5,6 +5,8 @@ from itertools import product as combination_product
 import numpy as np
 import shutil
 
+# si is just used to read the meta file in this script which we probably can do ourselves
+# TODO: replace spikeinterface read_spikeglx with in-house function
 import spikeinterface.full as si
 
 import kilosort as ks
