@@ -1,0 +1,8 @@
+# This config will hold all parameters relevant to supplying your data into this pipeline.
+# It will hold the parameters that are most specific to you, your data, and your run
+# (i.e. the parameters you are least likely to share with anyone else)
+
+
+# all_VE_config
+projectLabel = 'Jeffrey' ## put your name or project or something to specify which sets of variables you will access.
+sessionString = '[0-9][0-9]*' # this is a default regular expression to get the correct filesets to analyze.

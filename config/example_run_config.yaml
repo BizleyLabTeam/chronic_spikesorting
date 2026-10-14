@@ -1,0 +1,25 @@
+# This config will hold all parameters relevant to actually running the spikesorting and unit match
+# but data directories will be kept separate (so that for example you could share a run.yaml with a colleage
+# who may want to use that run.yaml but with their own data)
+
+# spikesort_folder.main()
+## these are a bunch of parameters you should set before running spikesorting which are hopefully named in a self-explanatory way.
+saveMultirecInfoFile = True ### whether to save metadata. You'll only want to turn it off if you are testing a thing and don't want to overwrite an old file or something...
+overwriteRaw = False # determines if you recreate a raw that is already detected. Set to true if you want to remake it, false otherwise.
+overwriteChanMap = True # determines whether you overwrite the channel map. In my opinion this should always be on.
+overwriteSpikesorting = False # determines whether you redo spikesortings that are already done. Overwrite when you try new things, don't sh
+createCompressed = False # determines whether you create compressed raw. Good to do if you need the space, but all processing requires unpacking it.
+doSpikeSorting = True
+copyAuxData = False
+overwriteAuxData = False
+saveLFP = True ### saves an additional raw file which is focused on the LFP. Will be downsampled to 1000 Hz
+overwriteLFP = True
+
+rawFolderName # line 99 - possibly not something we want hard coded
+
+
+
+# all_VE_config
+###### Override variables; default to off unless you turn them on.
+SurveyOverride = False
+useBugFixedSilencePeriods = False
