@@ -13,7 +13,7 @@ def gatherSessionSetListForFerret(ferret):
         recordingZones = {
                           # 'SessionSet01', ### first set, May 2024
                           # 'SessionSet02', ### second set, June 2024
-                          # 'SessionSet03', ### third set, July 2024. Some PFC problems, not an overwhelming amount.
+                          'SessionSet03', ### third set, July 2024. Some PFC problems, not an overwhelming amount.
                           # 'SessionSet04', #/# ### July into August. Pulse problems begin. If I want the good PFC data I need this dealt with. Or I need to figure out how to process the PFC data well. I have marked sets where I think the PFC data is tolerable but I have this issue with "##". There are four. So I have a lot of data to gain from it.
                           # 'SessionSet05', #/# ### August into sept
                           # 'SessionSet06', #/# ### sept into oct
@@ -34,7 +34,7 @@ def gatherSessionSetListForFerret(ferret):
                           # 'SessionSet18',
                           # 'SessionSet19',
                           # 'SessionSet20', ### this is the final one, I think it is my pilot data with correlated/uncorrelated noise.
-                            'TestSet01', # a small test set. Just the first two days of recording.
+                          #   'TestSet01', # a small test set. Just the first two days of recording.
                           }
     elif ferret == 'F2301_Boule':
         recordingZones = {
