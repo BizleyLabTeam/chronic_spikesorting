@@ -1,5 +1,4 @@
-
-name: neuropixels_chronic_spikesorting_Bizley
+name: chronic_spikesorting
 channels:
   - conda-forge
   - defaults

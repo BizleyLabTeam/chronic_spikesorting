@@ -46,8 +46,8 @@ if projectLabel == 'Jeffrey': # contains probemap specific stuff. First set cont
     if recordingZone == 'Challah':
         ferret = 'F2302_Challah'
         ferret_no_id = 'Challah'
-        # regionLabels = ['AC','PFC'] ### will be iterated through later.
-        regionLabels = ['PFC'] ### will be iterated through later.
+        regionLabels = ['AC','PFC'] ### will be iterated through later.
+        # regionLabels = ['PFC'] ### will be iterated through later.
         sessionSetLabel = '' ### unused but needs to have a value
     elif recordingZone == 'Boule':
         ferret = 'F2301_Boule'
