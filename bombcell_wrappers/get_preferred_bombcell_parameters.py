@@ -1,0 +1,182 @@
+### parameters first recommended by UnitMatch then altered by Louise and Jeff, leading to spikes we liked.
+
+
+import numpy as np
+from pathlib import Path
+
+from bombcell.loading_utils import get_gain_spikeglx
+
+
+def get_preferred_bombcell_parameters(
+    kilosort_path,
+    raw_file=None,
+    kilosort_version=4,
+    meta_file=None,
+    gain_to_uV=None,
+):
+    """
+    Creates the parameters dictionary
+
+    Parameters
+    ----------
+    kilosort_path : str
+        The path to the KiloSort directory
+    raw_file : str, optional
+        The path to the raw data, by default None
+    kilosort_version : int, optional
+        Changes parameters based on if KS4 or earlier version were used, by default None
+    ephys_meta_dir : str, optional
+        The path to the meta file of the raw recording, by default None
+    gain_to_uV : float, optional
+        The gain to micro volts if needed to give manually, by default None
+
+    Returns
+    -------
+    param : dictionary
+        The full param dictionary need to run BombCell
+    """
+    param = {
+        # Quality metric computation and display parameters
+        ## general
+        "plotDetails": False,  # show step-by-step plots
+        "plotGlobal": True,  # Summary plots of quality metrics
+        "verbose": True,  # If True will update user on progress
+        "reextractRaw": True,  # If True will re extract raw waveforms
+        "saveAsTSV": True,  # save outputs as a .tsv file, useful for using phy after bombcell
+        "unit_type_for_phy": True,  # save a unit_type .tsv file for phy
+        "ephysKilosortPath": str(kilosort_path),  # path to the KiloSort directory
+
+        ## Duplicate spike parameters
+        "removeDuplicateSpikes": True,
+        "duplicateSpikeWindow_s": 0.000034,  # in seconds
+        "saveSpikes_withoutDuplicates": True,
+        "recomputeDuplicateSpikes": True, ### Just keep this as true, it doesn't take very long.
+
+        ## Excess spike parameters
+        "removeExcessSpikes": True,
+        "recomputeExcessSpikes": True, ### Just keep this as true, it doesn't take very long. The validity also depends on what recomputeDuplicateSpikes does, so it is more reliable to just run them in a chain.
+        "saveSpikes_withoutExcess": True,
+
+        ## Amplitude / raw waveform parameters
+        "detrendWaveform": True,  # If True will linearly de-trend the average waveforms for BombCell
+        "detrendForUnitMatch": False,  # If True will linearly de-trend raw waveforms saved for UnitMatch
+        "nRawSpikesToExtract": 100,  # Number of raw spikes per unit
+        "decompress_data": False,  # whether to decompress .cbin data
+        "extractRaw": True,
+        "probeType": 1,  # If you are using spikeGLX and your meta files does not
+        # contain information on your probe type specify it here
+        # '1' for 1.0 (3Bs) and '2' for 2.0 (single or 4-shanks)
+
+        ## Refractory period parameters
+        "tauR_valuesMin": 2 / 1000,  # refractory period time (s), usually 0.002 s
+        "tauR_valuesMax": 2 / 1000,  # refractory period time (s)
+        "tauR_valuesStep": 0.5 / 1000,  # if tauR_valuesMin and tauR_valuesMax are different
+        # bombcell will estimate values in between using
+        # tauR_valuesStep
+        "tauC": 0.1 / 1000,  # censored period time (s), to prevent duplicate spikes
+        "hillOrLlobetMethod": True,  # use hill (rate of RPV) if 1, else use Llobet et al. (rate of contaminant spike even outside RP)
+
+        ## Percentage spikes missing parameters
+        "computeTimeChunks": True,  # compute fraction refractory period violations and
+        # percent spikes missing for different time chunks
+        "deltaTimeChunk": 120, #360,  # time in seconds
+
+        ## Presence  ratio
+        "presenceRatioBinSize": 60,  # in seconds
+
+        ## Drift estimate
+        "driftBinSize": 60,  # in seconds
+        "computeDrift": False,  # If True computes drift per unit
+
+        ## Waveform parameters
+        "minThreshDetectPeaksTroughs": 0.2,  # this is multiples by the max value in a units
+        # waveform to give the minimum prominence to detect peaks
+
+        # it must be at least this many times larger than the peak after the trough
+        # to qualify as a non-somatic unit
+        "normalizeSpDecay": True,  # If True, will normalize spatial decay points relative to maximum
+        # this makes the spatial decay more invariant to the spike-sorting
+        "spDecayLinFit": False, # if True, use a linear fit for spatial decay. If false, use exponential (preferred)
+        "computeSpatialDecay": True,
+
+        ## Recording parameters - !WARNING! if you modify any of these after having already run bombcell, you
+        # will need to set 'reextractRaw' to true to update the raw waveforms
+        "ephys_sample_rate": 30000,  # samples per second
+        "nChannels": 385,  # Number of recorded channels (including any sync channels) in raw data ### within bombcell's code, things are designed such that this is the default which is changed if the meta file disagrees. I think it should be named to reflect that, but alas. Anyway, keep it 385 and never use it to refer to your actual channel number.
+        "nSyncChannels": 1, # Number of recorded SYNC channels in raw data
+
+        ## Distance metric parameters
+        "computeDistanceMetrics": False,  # If True computes distance metics NOTE is slow in ML
+        "nChannelsIsoDist": 4,  # Number of nearby channels to use in distance metric computation
+
+        ## Distance metrics ### for some reasons sorted differently from the above by Bombcell.
+        "isoDmin": 20,  # minimum isolation distance value
+        "lratioMax": 0.3,  # maximum l-ratio value
+
+        ## ADDED BY LOUISE, Spatial spreak of spikes
+        "computeSpatialSpreadSpikes": True,
+        "maxSpread": 25,
+
+        # Quality metric classification parameters
+        "splitGoodAndMua_NonSomatic": False,  # whether to classify non-somatic units
+        ## Waveform-based
+        "maxNPeaks": 2,  # maximum number of peaks
+        "maxNTroughs": 2, ### should be 1, but I have an oddity in my first sessions that sometimes makes a double spike in what one must believe is a genuinely good spike otherwise... Might be related to the baseline situation in that the beginning-time might be poorly aligned. That also might [?] be headstage calibration related.  # maximum number of troughs
+        "minWvDuration": 100,  # in us
+        "maxWvDuration": 1150,  # in us
+        "minSpatialDecaySlope": -0.008,
+        "minSpatialDecaySlopeExp": 0.0037, ### changed from 0.005... It actually seems to have been 0.006 based on the graph...   # in a.u / um
+        "maxSpatialDecaySlopeExp": 0.1,  # in a.u / um
+        "maxWvBaselineFraction": 0.36,  ### 0.25 default. I put it to 0.36 to be more permissive because a lot of good units were getting excluded.  # maximum absolute value in waveform baseline should not exceed this fraction of the waveforms's absolute peak
+        "maxScndPeakToTroughRatio_noise": 0.8,
+        "minTroughToPeak2Ratio_nonSomatic": 5,
+        "minWidthFirstPeak_nonSomatic": 4,
+        "minWidthMainTrough_nonSomatic": 5,
+        "maxPeak1ToPeak2Ratio_nonSomatic": 3,
+        "maxMainPeakToTroughRatio_nonSomatic": 0.8,
+
+        ## Other classification parameters
+        "minAmplitude": 10,  # in uV
+        "maxRPVviolations": 0.3,  # max fraction of refractory period violations
+        "maxPercSpikesMissing": 20,  # max percentage of missing spikes
+        "minNumSpikes": 300,  ### changed from 500 because my sessions are short... # minimum number of total spikes recorded
+        "maxDrift": 100,  # in um
+        "minPresenceRatio": 0.7,  # minimum fraction of time chunks unit must be present for
+        "minSNR": 5,  # min SNR for a good unit
+
+    }
+
+
+    # Fetch metadata uV conversion factor
+    if meta_file is not None and gain_to_uV is None:
+        gain_to_uV = get_gain_spikeglx(meta_file)
+
+    # Add to param dictionnary
+    if meta_file is not None:
+        param["ephys_meta_file"] = str(meta_file)
+        if gain_to_uV is not None and not np.isnan(gain_to_uV):
+            param["gain_to_uV"] = gain_to_uV
+        else:
+            param["gain_to_uV"] = np.nan
+    else:
+        param["ephys_meta_file"] = None
+        param["gain_to_uV"] = gain_to_uV
+
+    if raw_file != None:
+        param["raw_data_file"] = str(raw_file)
+    else:
+        param["raw_data_file"] = None
+
+    if kilosort_version == 4:
+        param["spike_width"] = 61 # width of spike in samples
+        param["waveformBaselineNoiseWindow"] = 10  # time in samples at the beginning, with no signal
+        param["waveform_baseline_window_start"] = 0  # 0-indexed, in samples
+        param["waveform_baseline_window_stop"] = 10  # 0-indexed, in samples
+
+    else:
+        param["spike_width"] = 82 # width of spike in samples
+        param["waveformBaselineNoiseWindow"] = 20  # time in samples at the beginning, with no signal
+        param["waveform_baseline_window_start"] = 21  # in samples
+        param["waveform_baseline_window_stop"] = 31  # in samples
+
+    return param

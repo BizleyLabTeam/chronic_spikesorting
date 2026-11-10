@@ -1,4 +1,4 @@
-name: chronic_spikesorting
+name: chronic_spikesorting_trylaterpython
 channels:
   - conda-forge
   - defaults
@@ -30,6 +30,7 @@ dependencies:
     - MEArec
     - spikeinterface[full,widgets]
     - spikeinterface-gui
+    - bombcell
 #    - tridesclous
     # - mtscomp # untested in the yml
      # you need to install kilosort as a seperate command for some reason, or it won't work. pip install kilosort --upgrade
