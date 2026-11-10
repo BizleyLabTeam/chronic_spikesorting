@@ -15,6 +15,7 @@ warnings.filterwarnings('ignore')
 
 import bombcell as bc
 from neuropixels_chronic_spikesorting_Bizley.helpers.get_unit_types_bombcell_from_file import get_unit_types_bombcell_from_file
+from neuropixels_chronic_spikesorting_Bizley.helpers.adjustParametersSessionSpecific import adjustParametersSessionSpecific
 from bombcell_wrappers.get_preferred_bombcell_parameters import get_preferred_bombcell_parameters
 from bombcell_wrappers.run_bombcell_Bizley import run_bombcell_Bizley
 
@@ -25,6 +26,7 @@ def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults
     ks_dir = session_config['ks_dir']
     raw_file = session_config.get('raw_file')
     meta_file = session_config.get('meta_file')
+    sessionSetParams = session_config.get('sessionSetParams')
 
     # Create save path in the kilosort directory
     save_path = Path(session_config['save_path'])
@@ -60,6 +62,7 @@ def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults
     if not existing_results or not existing_results.exists():
         print("   🚀 Running BombCell analysis...")
         param = get_preferred_bombcell_parameters(ks_dir, raw_file, kilosort_version, meta_file, gain_to_uV=None) ### I will soon want to change this to potentially be session specific... # also re: gain_to_uV being none, so as long as you have the meta file available, which you must, you'll get the meta file's gain_to_uV automatically
+        param = adjustParametersSessionSpecific(param,sessionSetParams)
         if param.get("verbose", False):
             print("🚀 Running BombCell with UnitMatch parameters...")
             print(f"   - Extracting {param['nRawSpikesToExtract']} raw spikes per unit")

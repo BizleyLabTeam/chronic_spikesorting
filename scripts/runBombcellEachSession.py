@@ -39,13 +39,18 @@ def main():
         actuallyUsedSessions = np.zeros(len(NAS_SessionsWithinMap),dtype='bool')
         ### session loop
         for i, (session,session_local) in enumerate(zip(NAS_SessionsWithinMap,Local_SessionsWithinMap)):
+            session_name = session.name
+            ## here, add anything to sessionSetParams you want to transfer into adjustParametersSessionSpecific for bombcell
+            sessionSetParams['currentSession'] = session_name
             temp_session_configs = [{ ### session config code as expected by the UnitMatch/Bonbcell code. Keeps track for every session in the loop, although the code doesn't need that.
                             'name': [], ## session name
                             'ks_dir': [], ### points to where the spikesort results are, I believe.
                             'raw_file': [],
                             'meta_file': [],
-                            'save_path': []}] ### points to where you save the bombcell results, which ends up being the ks_dir
-            session_name = session.name
+                            'save_path': [],
+                            'sessionSetParams':sessionSetParams, # added into the bombcell structure.
+                            }] ### points to where you save the bombcell results, which ends up being the ks_dir
+
             if not i: # initialize
                 session_configs = temp_session_configs
             else:
