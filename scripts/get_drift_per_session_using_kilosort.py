@@ -13,7 +13,9 @@ import matplotlib.pyplot as plt
 import spikeinterface.full as si
 
 import kilosort as ks
+import bombcell as bc
 
+from neuropixels_chronic_spikesorting_Bizley.helpers.get_unit_types_bombcell_from_file import get_unit_types_bombcell_from_file
 
 from neuropixels_chronic_spikesorting_Bizley.helpers.helpers_spikesorting_scripts import get_channelmap_names, getSessionsWithinMap
 from neuropixels_chronic_spikesorting_Bizley.spikesorting import applyOverStrike, nullify_saturations, makeAndProcessRaw, getLFP
@@ -23,13 +25,14 @@ from generally_useful_functions_Bizley.splitLocationsIntoShanks import splitLoca
 
 import neuropixels_chronic_spikesorting_Bizley.outerLoopConfigs as outerLoopConfigs
 import neuropixels_chronic_spikesorting_Bizley.all_VE_config as all_VE_config # this config file should be synced between all your VEs.
+
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.gatherSessionSetListForFerret import gatherSessionSetListForFerret
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySessionSetParameters import SpecifySessionSetParameters
 
 def main():
-
+    npsf = 30000 # neuropixels sampling frequency, doens't need to be exact here.
     doSessionRasters = True
-
+    bombcellUnitTypesToKeep = [1] # 0 is noise, 1 good, 2 MUA, 3 nonsoma
     recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
 
     #sessionSetParams = SpecifySessionSetParameters(all_VE_config.ferret,SessionSetName,all_VE_config.regionLabels)
@@ -48,11 +51,33 @@ def main():
             session_name = session.name
             sorter_output_folder =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / session_name
             spike_clusters = np.load(sorter_output_folder / 'spike_clusters.npy')
-            amplitudes = np.load(sorter_output_folder / 'amplitudes.npy')
-            full_amp = np.load(sorter_output_folder / 'full_amp.npy')
+            # amplitudes = np.load(sorter_output_folder / 'amplitudes.npy')
+            # full_amp = np.load(sorter_output_folder / 'full_amp.npy')
             spike_positions = np.load(sorter_output_folder / 'spike_positions.npy')
             spike_times = np.load(sorter_output_folder / 'spike_times.npy')
             spike_shankLabel = splitLocationsIntoShanks(spike_positions)
+
+            if True:
+                #### temp section
+                # unit_type_string
+
+                # param, quality_metrics, _, = bc.load_bc_results(str(sorter_output_folder))
+                unit_type,unit_type_string = get_unit_types_bombcell_from_file(sorter_output_folder)
+
+                clustersToKeep = np.full(len(spike_clusters),False)
+                for currentClusterType in bombcellUnitTypesToKeep: # goes through each unit type to keep and sets clustersToKeep to true for every spike of that type.
+                    clustersOfThisType = np.where(unit_type==currentClusterType)[0]
+                    for currentCluster in clustersOfThisType:
+                        clustersToKeep = (currentCluster == spike_clusters) | clustersToKeep
+                spike_clusters = spike_clusters[clustersToKeep]
+                # amplitudes = amplitudes[clustersToKeep]
+                # full_amp = full_amp[clustersToKeep]
+                spike_positions = spike_positions[clustersToKeep,:]
+                spike_times = spike_times[clustersToKeep]
+                spike_shankLabel = spike_shankLabel[clustersToKeep]
+                #####
+
+
             largestSpikeSampleTimeEachSession[i] = spike_times[-1] # just the biggest recrded sample number, so that we can concatenate easily. We will add the cumulative sum of this to each successive session.
             if setUpSessionLoop:
                 shanksInUse = np.unique(spike_shankLabel) ### strictly speaking, if in any session in your set you have zero spikes in one shank for one session and any number in another session, then this will be incorrect... That feels ultra unlikely, but keep an ear out. Frankly if this causes an error you probably want to know about it.
@@ -79,7 +104,7 @@ def main():
             for ii,currentShank in enumerate(shanksInUse):
                 sessionRasterPlots[currentShank] = dict()
                 sessionRasterPlots[currentShank]['plot'],sessionRasterPlots[currentShank]['axis'] = plt.subplots()
-                sessionRasterPlots[currentShank]['axis'].scatter(fullSessionSetTimes[currentShank] / 30000, fullSessionSetSpikeLocations[currentShank][:, 1], s=0.0005, c="black")
+                sessionRasterPlots[currentShank]['axis'].scatter(fullSessionSetTimes[currentShank] / npsf, fullSessionSetSpikeLocations[currentShank][:, 1], s=0.0005, c="black")
                 sessionRasterPlots[currentShank]['axis'].invert_yaxis()
                 sessionRasterPlots[currentShank]['plot'].show()
                 pass
