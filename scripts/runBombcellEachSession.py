@@ -74,19 +74,21 @@ def main():
             print(f"\n{'=' * 60}")
             print(f"SESSION {i + 1}/{len(Local_SessionsWithinMap)} {session_name}")
             print(f"{'=' * 60}")
-            try:
-                result,template_waveforms = run_bombcell_session(session_configs[i],kilosort_version,reloadExistingResults) # "result" is a dict with well named keys. template_waveforms also are what the name implies. Both are only used for plotting, within this code; actual results are saved within the function.
-            except:
-                raise ### comment this out if you want to move past errors.
-                result = dict() ### make a blank dict
-                with open(errorFileName, "a") as f:
-                    print('bombcell failed for ' + session_configs[i]['name'], file=f) # puts errors into a file so you can check them later.
-                pass
-            if plot_withPlannedBreakpoints:
-                if bool(result):
+            existing_results = session_configs[i]["save_path"] / "cluster_bc_unitType.tsv" ### the name cluster_bc_unitType is hardcoded within bombcell, so don't change it.
+            if not(existing_results.exists()&skipIfAlreadyDone): ### also skips plotting. Imo, it should. Another function will load things to plot.
+                try:
+                    result,template_waveforms = run_bombcell_session(session_configs[i],kilosort_version,reloadExistingResults) # "result" is a dict with well named keys. template_waveforms also are what the name implies. Both are only used for plotting, within this code; actual results are saved within the function.
+                except:
+                    raise ### comment this out if you want to move past errors.
+                    result = dict() ### make a blank dict
+                    with open(errorFileName, "a") as f:
+                        print('bombcell failed for ' + session_configs[i]['name'], file=f) # puts errors into a file so you can check them later.
                     pass
-                    plot_summary_data(result['quality_metrics'], template_waveforms, result['unit_type'], result['unit_type_string'], result['param'])
-                    pass ### put breakpoint here.
+                if plot_withPlannedBreakpoints:
+                    if bool(result):
+                        pass
+                        plot_summary_data(result['quality_metrics'], template_waveforms, result['unit_type'], result['unit_type_string'], result['param'])
+                        pass ### put breakpoint here.
 
 
 if __name__ == '__main__':

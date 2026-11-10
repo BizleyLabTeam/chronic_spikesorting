@@ -5,22 +5,14 @@
 ### there was already at least one version assumption problem wrt bombcell and unitmatch when I used Unitmatch's
 ### code directly... So instead, we will have our bombcell framework and can run Unitmatch on top of it.
 
+### when reading it... Try not to get overwhelmed with all the "prints", there isn't actually all that much to it otherwise.
 
-
-# 📦 Import Required Libraries
 import numpy as np
-import pandas as pd
-import os as os_true
-import pickle
-import matplotlib.pyplot as plt
 from pathlib import Path
-from datetime import date
-from scipy.io import loadmat
 import warnings
-import csv
 warnings.filterwarnings('ignore')
 
-# Import BombCell for quality control
+
 import bombcell as bc
 from neuropixels_chronic_spikesorting_Bizley.helpers.get_unit_types_bombcell_from_file import get_unit_types_bombcell_from_file
 from bombcell_wrappers.get_preferred_bombcell_parameters import get_preferred_bombcell_parameters
@@ -28,7 +20,6 @@ from bombcell_wrappers.run_bombcell_Bizley import run_bombcell_Bizley
 
 
 def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults = True):
-    """Run BombCell on a single session with UnitMatch parameters"""
 
     name = session_config['name']
     ks_dir = session_config['ks_dir']
@@ -45,7 +36,7 @@ def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults
     print(f"   💾 Results will be saved to: {save_path}")
 
     # Check if BombCell has already been run
-    existing_results = save_path / "cluster_bc_unitType.tsv"
+    existing_results = save_path / "cluster_bc_unitType.tsv" ### hardcoded name
 
     if existing_results.exists()&reloadExistingResults:
         ### haven't checked if this works in this VE
@@ -58,6 +49,7 @@ def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults
             print(f"   📊 Loaded results - Total units: {len(unit_type)}")
 
         except Exception as e:
+            raise ### comment this if you want errors to be skipped over
             print(f"   ⚠️  Error loading existing results: {e}")
             print(f"   🔄 Will re-run BombCell analysis...")
             existing_results = None
@@ -67,7 +59,7 @@ def run_bombcell_session(session_config,kilosort_version=4,reloadExistingResults
     # Run BombCell if no existing results or loading failed
     if not existing_results or not existing_results.exists():
         print("   🚀 Running BombCell analysis...")
-        param = get_preferred_bombcell_parameters(ks_dir, raw_file, kilosort_version, meta_file, gain_to_uV=None) ### I will soon want to change this to potentially be session specific... ### Also I think Rebecca will care about gain_to_uV...
+        param = get_preferred_bombcell_parameters(ks_dir, raw_file, kilosort_version, meta_file, gain_to_uV=None) ### I will soon want to change this to potentially be session specific... # also re: gain_to_uV being none, so as long as you have the meta file available, which you must, you'll get the meta file's gain_to_uV automatically
         if param.get("verbose", False):
             print("🚀 Running BombCell with UnitMatch parameters...")
             print(f"   - Extracting {param['nRawSpikesToExtract']} raw spikes per unit")

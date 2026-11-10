@@ -1,4 +1,4 @@
-name: chronic_spikesorting_trylaterpython
+name: chronic_spikesorting
 channels:
   - conda-forge
   - defaults
