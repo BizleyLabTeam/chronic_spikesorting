@@ -32,7 +32,7 @@ from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySession
 def main():
     npsf = 30000 # neuropixels sampling frequency, doens't need to be exact here.
     doSessionRasters = True
-    bombcellUnitTypesToKeep = [1] # 0 is noise, 1 good, 2 MUA, 3 nonsoma
+    bombcellUnitTypesToKeep = [1,2] # 0 is noise, 1 good, 2 MUA, 3 nonsoma
     recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
 
     #sessionSetParams = SpecifySessionSetParameters(all_VE_config.ferret,SessionSetName,all_VE_config.regionLabels)
@@ -65,11 +65,15 @@ def main():
                 unit_type,unit_type_string = get_unit_types_bombcell_from_file(sorter_output_folder)
 
                 clustersToKeep = np.full(len(spike_clusters),False)
+                bombcellTypes = np.zeros(len(spike_clusters),dtype=int)
                 for currentClusterType in bombcellUnitTypesToKeep: # goes through each unit type to keep and sets clustersToKeep to true for every spike of that type.
                     clustersOfThisType = np.where(unit_type==currentClusterType)[0]
                     for currentCluster in clustersOfThisType:
                         clustersToKeep = (currentCluster == spike_clusters) | clustersToKeep
+                        bombcellTypes[currentCluster == spike_clusters] = currentClusterType
+
                 spike_clusters = spike_clusters[clustersToKeep]
+                bombcellTypes = bombcellTypes[clustersToKeep]
                 # amplitudes = amplitudes[clustersToKeep]
                 # full_amp = full_amp[clustersToKeep]
                 spike_positions = spike_positions[clustersToKeep,:]
@@ -83,11 +87,15 @@ def main():
                 shanksInUse = np.unique(spike_shankLabel) ### strictly speaking, if in any session in your set you have zero spikes in one shank for one session and any number in another session, then this will be incorrect... That feels ultra unlikely, but keep an ear out. Frankly if this causes an error you probably want to know about it.
                 fullSessionSetSpikeLocations = dict()
                 fullSessionSetTimes = dict()
+                fullSessionSetClustersWithinSession = dict()
+                fullSessionSetBombcellTypes = dict()
                 # fullSessionSetAmplitudes = dict() # probably don't actually need that, especially as I probably would want to use percentiles even if I use them.
                 for ii,currentShank in enumerate(shanksInUse):
                     currentShankIndices = spike_shankLabel == currentShank
                     fullSessionSetSpikeLocations[currentShank] = spike_positions[currentShankIndices,:]
-                    fullSessionSetTimes[currentShank] = spike_times[currentShankIndices]
+                    fullSessionSetTimes[currentShank] = spike_times[currentShankIndices] # So across sessions these labels will have no meaning, but they will help me track down which set of spikes belong to which cluster within phy.
+                    fullSessionSetClustersWithinSession[currentShank] = spike_clusters[currentShankIndices]
+                    fullSessionSetBombcellTypes[currentShank] = bombcellTypes[currentShankIndices]
                     # fullSessionSetAmplitudes[currentShank] = amplitudes[currentShankIndices]
                 setUpSessionLoop = False
             else:
@@ -96,7 +104,8 @@ def main():
                     fullSessionSetSpikeLocations[currentShank] = np.concatenate((fullSessionSetSpikeLocations[currentShank],spike_positions[currentShankIndices,:]),axis=0)
                     adjustedTimes = spike_times[currentShankIndices] + np.cumsum(largestSpikeSampleTimeEachSession[:i])[-1]
                     fullSessionSetTimes[currentShank] = np.concatenate((fullSessionSetTimes[currentShank],adjustedTimes),axis=0)
-
+                    fullSessionSetClustersWithinSession[currentShank] = np.concatenate((fullSessionSetClustersWithinSession[currentShank],spike_clusters[currentShankIndices]),axis=0)
+                    fullSessionSetBombcellTypes[currentShank] = np.concatenate((fullSessionSetBombcellTypes[currentShank],bombcellTypes[currentShankIndices]),axis=0)
                     # fullSessionSetAmplitudes[currentShank] = np.concatenate((fullSessionSetAmplitudes[currentShank],amplitudes[currentShankIndices]),axis=0)
             pass
         pass
@@ -104,8 +113,9 @@ def main():
             for ii,currentShank in enumerate(shanksInUse):
                 sessionRasterPlots[currentShank] = dict()
                 sessionRasterPlots[currentShank]['plot'],sessionRasterPlots[currentShank]['axis'] = plt.subplots()
-                sessionRasterPlots[currentShank]['axis'].scatter(fullSessionSetTimes[currentShank] / npsf, fullSessionSetSpikeLocations[currentShank][:, 1], s=0.0005, c="black")
+                sessionRasterPlots[currentShank]['scatter'] = sessionRasterPlots[currentShank]['axis'].scatter(fullSessionSetTimes[currentShank] / npsf, fullSessionSetSpikeLocations[currentShank][:, 1], s=0.05, c=fullSessionSetBombcellTypes[currentShank],cmap='jet')
                 sessionRasterPlots[currentShank]['axis'].invert_yaxis()
+                sessionRasterPlots[currentShank]['plot'].colorbar(sessionRasterPlots[currentShank]['scatter'], ax=sessionRasterPlots[currentShank]['axis'])
                 sessionRasterPlots[currentShank]['plot'].show()
                 pass
 

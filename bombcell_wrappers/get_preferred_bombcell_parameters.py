@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 
 from bombcell.loading_utils import get_gain_spikeglx
+from bombcell.default_parameters import _kilosort4_duplicate_window_s
 
 
 def get_preferred_bombcell_parameters(
@@ -38,7 +39,7 @@ def get_preferred_bombcell_parameters(
     param = {
         # Quality metric computation and display parameters
         ## general
-        "plotDetails": True,  # show step-by-step plots
+        "plotDetails": False,  # show step-by-step plots
         "plotGlobal": True,  # Summary plots of quality metrics
         "savePlots": True,  # If True will save plots to disk...
         "plotsSaveDir": None,  # Directory to save plots to (if None, saves to kilosort_path/bombcell_plots/)
@@ -190,12 +191,20 @@ def get_preferred_bombcell_parameters(
 
     }
 
-
     # Fetch metadata uV conversion factor
     if meta_file is not None and gain_to_uV is None:
-        gain_to_uV = get_gain_spikeglx(meta_file)
+        # Check if this is an OpenEphys file
+        if '.oebin' in str(meta_file):
+            # OpenEphys format - use hardcoded scaling factor
+            # OpenEphys already applies standard gain (2.34 μV/bit for AP),
+            # so we only need the final ~0.195 multiplier
+            # Ref: https://open-ephys.atlassian.net/wiki/spaces/OEW/pages/166789121/Flat+binary+format
+            gain_to_uV = 0.1949999928474426
+        else:
+            # SpikeGLX format - read from meta file
+            gain_to_uV = get_gain_spikeglx(meta_file)
 
-    # Add to param dictionnary
+    # Add to param dictionary
     if meta_file is not None:
         param["ephys_meta_file"] = str(meta_file)
         if gain_to_uV is not None and not np.isnan(gain_to_uV):
@@ -212,6 +221,9 @@ def get_preferred_bombcell_parameters(
         param["raw_data_file"] = None
 
     if kilosort_version == 4:
+        # Kilosort 4 removes same-cluster spikes closer than duplicate_spike_ms, so no
+        # pair can fall in that window: it has to be censored in the RPV estimate
+        param["tauC"] = max(param["tauC"], _kilosort4_duplicate_window_s(kilosort_path)) ### this implies that ks4 has a more recent version that maybe dealt with the duplicate spike issue
         param["spike_width"] = 61 # width of spike in samples
         param["waveformBaselineNoiseWindow"] = 10  # time in samples at the beginning, with no signal
         param["waveform_baseline_window_start"] = 0  # 0-indexed, in samples
