@@ -5,8 +5,7 @@ import spikeinterface.full as si
 import matplotlib.pyplot as plt
 import spikeinterface.widgets as sw
 
-# import neuropixels_chronic_spikesorting_Bizley.externalBugFixes.spike_interface.v_103_0.silence_periods as silence_periods_file
-import neuropixels_chronic_spikesorting_Bizley.config as global_configs
+from config import get_configs
 import torch
 import pickle
 import shutil
@@ -19,30 +18,43 @@ def spikeglx_visualize(recording):
     ### First: plot traces. Without any processing, they will be raw; you can do CMR or bandpass or phase shift or bad channel removal to improve things.
             # by the way, if you ever want to load traces into RAM, it's "get_traces". A method on the recording object.
 
-    badChannelList = [66, 105, 149, 170, 175, 209, 210, 239, 354, 369]
+    data_config, run_config = get_configs()
+    selected_animal = next(iter(data_config["session_sets_to_run"]))
+    selected_set = data_config["session_sets_to_run"][selected_animal][0]
+    selected_regions = data_config["session_sets"][selected_animal][selected_set]["regions"]
+    badChannelList = next(iter(selected_regions.values())).get("bad_channels", [])
+    sample_rate = recording.get_sampling_frequency()
+    legacy = run_config.get("legacy_spikeinterface", {})
 
     recording = si.phase_shift(recording)
     new_channel_ids = recording.channel_ids[~np.in1d(recording.channel_ids, recording.channel_ids[badChannelList])]
     recording = si.channelslice.ChannelSliceRecording(recording, new_channel_ids)
-    satRange = [191, 192] # range which includes a small period of saturation
-    satRangeSamples = [int(satRange[0] * 30000), int(satRange[1] * 30000)]
-    spikeViewRegion = [317.14,317.15]#[191.4,191.41]
-    spikeViewRegionSamples = [int(spikeViewRegion[0] * 30000), int(spikeViewRegion[1] * 30000)]
+    satRange = legacy.get("saturation_view_s", [191, 192])
+    satRangeSamples = [int(satRange[0] * sample_rate), int(satRange[1] * sample_rate)]
+    spikeViewRegion = legacy.get("spike_view_s", [317.14, 317.15])
+    spikeViewRegionSamples = [int(spikeViewRegion[0] * sample_rate), int(spikeViewRegion[1] * sample_rate)]
     testData = recording.get_traces(0,spikeViewRegionSamples[0],spikeViewRegionSamples[1])
-    plt.imshow(testData.T, aspect='auto', clim=[-2000, 2000])
+    plt.imshow(testData.T, aspect='auto', clim=legacy.get("trace_color_limits", [-2000, 2000]))
     #recording = si.blank_staturation(recording, abs_threshold=1900, direction="both")
     #w_ts = sw.plot_timeseries(recording, time_range=satRange,clim=(-1955,1955))
     plt.show()
-    recording = si.bandpass_filter(recording, freq_min=300, freq_max=6000)
+    recording = si.bandpass_filter(recording, freq_min=legacy.get("filter_min_hz", 300), freq_max=legacy.get("filter_max_hz", 6000))
 
     recording = si.common_reference(recording, reference='global', operator='median')
 
-    w_ts2 = sw.plot_timeseries(recording, time_range=spikeViewRegion, clim=(-20, 20))
+    w_ts2 = sw.plot_timeseries(recording, time_range=spikeViewRegion, clim=legacy.get("filtered_color_limits", [-20, 20]))
     plt.show()
     fakey = 1 + 1
 
-def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path,badChannelList,catgt_location,rawFolderName,overwriteRaw = False,createCompressed = False):
-
+def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path,badChannelList,catgt_location,rawFolderName,overwriteRaw=None,createCompressed=None):
+    data_config, run_config = get_configs()
+    catgt = run_config["catgt"]
+    sorting = run_config["sorting"]
+    tools = run_config["tools"]
+    if overwriteRaw is None:
+        overwriteRaw = sorting.get("overwrite_raw", False)
+    if createCompressed is None:
+        createCompressed = sorting.get("create_compressed", False)
 
     # catgt_command = catgt.dry_run()  ### dry_run() generates a string for you. Look at it if you want to check.
     dir_string = '-dir=' + str(NAS_session_path) ### this should be all_VE_config.NAS_session_path, though I passed it as an argument instead of importing (good decision, later I would have regretted it). It specifies where the file should come from.
@@ -50,19 +62,24 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
     prb_string = '-prb=' + stream_id[-4] ### the imec number of the probe.
     g_string = '-g=' + session_name[-1] ### the number next to g. Almost always 0, unless an error happened.
     dest_string = '-dest=' + str(local_session_path)
-    CMR_string = '-gblcar' ### or gbldmx. Apparently car is better ### Rebecca, you can use loccar_um to do a local car. Also, if you want to do nothing, make this ''.
-    filter_string = '-apfilter="butter,12,300,6000"' #; order-N band-pass ### the butterworth filter is zero-phase. I will be primarily doing it for the high pass filter. Low pass filter will also help
+    CMR_string = catgt.get("common_reference", "-gblcar")
+    filter_string = '-apfilter="{}"'.format(catgt.get("ap_filter", "butter,12,300,6000"))
     #gfix_string = '-gfix=' ### this is the catgt style saturation replacement. I probably won't use it because I prefer the one I wrote, to be honest.
 
     ## make -save string, which is a bit more involved... This is the thing that remove bad channels.
-    js = '2'  ### 2 for AP, 3 for LF apparently. look up the documentation for -save in catgt.
+    js = str(catgt.get("save_stream_type", 2))
     out_streamid_num = stream_id[-4]  ### I will want this to be the same, perhaps you won't.
-    channelsToKeep_listStyle = np.setdiff1d(np.arange(0, 385), np.asarray(badChannelList)).tolist() ### includes the 385th channel intentionally
+    channelsToKeep_listStyle = np.setdiff1d(np.arange(0, catgt.get("n_channels_total", 385)), np.asarray(badChannelList)).tolist()
     channelsToKeepString = str(channelsToKeep_listStyle)[1:-1].replace(" ", "") ### I list them all one by one, excluding the ones we said to exclude.
     save_string = '-save=' + js + ',' + prb_string[-1] + ',' + out_streamid_num + ',' + channelsToKeepString ### the "-save" argument wants you to put js, in-imec-num, out-imec-num first before all the channels you want to save.
     chnexcl_string = '-chnexcl={'+stream_id[-4]+';'+str(badChannelList)[1:-1].replace(" ", "")+'} ' ### we also need to say we are excluding channels, because they do seperate things. save_string is about which channels you save, but this one is about which channels are exlcuded from thing like the CAR.
 
-    catgt_command = 'runit.bat ' + dir_string + ' ' + run_string + ' ' + g_string + ' ' + '-t=0 -ap' + ' ' + prb_string + ' ' + dest_string + ' -prb_fld ' + chnexcl_string + save_string + ' ' + CMR_string + ' ' + filter_string
+    catgt_command = ' '.join([
+        tools.get("catgt_batch_file", "runit.bat"), dir_string, run_string, g_string,
+        f'-t={catgt.get("time_range", 0)}', catgt.get("ap_flag", "-ap"), prb_string,
+        dest_string, catgt.get("probe_folder_flag", "-prb_fld"), chnexcl_string,
+        save_string, CMR_string, filter_string,
+    ])
 
     catgt_output_folder_path = local_session_path / Path('catgt_' + session_name)
 
@@ -81,7 +98,7 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
     ## load an si recording as an easy way to get the metadata.
     ### currently doesn't work... Will double check if I need it to work (as possibly I will still have this problem after I compress)
     #recording = si.read_spikeglx(catgt_output_folder_path, stream_id=stream_id) ### streamid will only work if you didn't change it... If you changed your output id, figure out how to make this work.
-    found_SR = 30000 ### not found yet. All mine (Jeff's) are currently 30000 though. There was a bug with spikeinterface that made it so I couldn't load through that, but it was possibly fixed in vesion 104. Also there exists code to read meta files, obviously. Some I can rob is in my later VE...
+    found_SR = run_config["sampling"].get("np_fs", 30000)
 
 
     binFileFullpath = list(catgt_output_folder_path.glob('*.bin'))[0] ### only should work if there is one bin file, but there always should be in normal use.
@@ -90,7 +107,10 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
 
 
     if createCompressed:
-        mtscomp_command = 'mtscomp ' + str(binFileFullpath) + ' -n ' + str(len(channelsToKeep_listStyle)) + ' -s ' + str(found_SR) + ' -d int16'
+        mtscomp_command = '{} {} -n {} -s {} -d {}'.format(
+            catgt.get("compressor_executable", "mtscomp"), binFileFullpath,
+            len(channelsToKeep_listStyle), found_SR, catgt.get("compression_dtype", "int16"),
+        )
         subprocess.Popen(mtscomp_command).wait()
 
     ### then delete the raw that existed before compression
@@ -102,9 +122,19 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
         pass ### haven't written the skip yet because I am not sure how I want to do it. By passing, you'll get an error if you don't overwrite. I imagine what I would want to do is check that the file has actually been created properly before skipping (just checking if the folder exists wouldn't do that)
     os.rename(catgt_output_folder_path,rawFolderName)
 
-def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannelList,catgt_location,overwriteLFP = False,doSaturationReplace=False,windowsToSilenceArray=None):
+def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannelList,catgt_location,overwriteLFP=None,doSaturationReplace=None,windowsToSilenceArray=None):
     ### based off of makeAndProcessRaw,  but entirely focused on LFP.
-    downsampleFactor = 30 ### set to 20 to output a sample rate of 1500 Hz... Because I want some buffer from the nyquist.
+    data_config, run_config = get_configs()
+    catgt = run_config["catgt"]
+    sorting = run_config["sorting"]
+    tools = run_config["tools"]
+    if overwriteLFP is None:
+        overwriteLFP = sorting.get("overwrite_lfp", False)
+    if doSaturationReplace is None:
+        doSaturationReplace = run_config["saturation"].get("replace", False)
+    if windowsToSilenceArray is None:
+        windowsToSilenceArray = np.empty((0, 2), dtype=int)
+    downsampleFactor = catgt.get("lf_downsample_factor", 30)
     dir_string = '-dir=' + str(NAS_session_path) ### this should be all_VE_config.NAS_session_path, though I passed it as an argument instead of importing (good decision, later I would have regretted it). It specifies where the file should come from.
     run_string = '-run=' + session_name[:-3] ### this is the name of the session folder, without the _g#.
     prb_string = '-prb=' + stream_id[-4] ### the imec number of the probe.
@@ -112,19 +142,24 @@ def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannel
     dest_string = '-dest=' + str(LFP_session_folder)
     CMR_string = '' ### Pretty sure we don't want this for LFP
     # filter_string = '-lffilter="butter,12,0.5,500"' # filter stopbands based on spikeGLX defaults...
-    filter_string = '-lffilter="butter,12,0,400"' # filter stopbands... with butterworth filters (which are 0 phase) you can't have a hipass cutoff as low as 0.5, which I why I set it to 0. The spikeglx filter is a non-zero-phase biquad.
+    filter_string = '-lffilter="{}"'.format(catgt.get("lf_filter", "butter,12,0,400"))
     # filter_string = '-lffilter="biquad,2,0.5,500"' # filter stopbands based on spikeGLX defaults...
     ap2lf_dwnsmp_string ='-ap2lf_dwnsmp=' + str(downsampleFactor)
 
     ## make -save string, which is a bit more involved... This is the thing that remove bad channels.
-    js = '2'  ### 2, apparently always. Mixed messaging on whether to use 3 for LF. Seems like maybe no unless you are using a 1.0 probe. Seems like maybe for everything 2.0 onward you just want this to be js = 2. Testing, seems to be the case that if you want to exclude channels properly, this must be 2. Check the manual if you are suspicious about any of this.
+    js = str(catgt.get("save_stream_type", 2))
     out_streamid_num = stream_id[-4]  ### I will want this to be the same, perhaps you won't.
-    channelsToKeep_listStyle = np.setdiff1d(np.arange(0, 385), np.asarray(badChannelList)).tolist() ### includes the 385th channel intentionally
+    channelsToKeep_listStyle = np.setdiff1d(np.arange(0, catgt.get("n_channels_total", 385)), np.asarray(badChannelList)).tolist()
     channelsToKeepString = str(channelsToKeep_listStyle)[1:-1].replace(" ", "") ### I list them all one by one, excluding the ones we said to exclude.
     save_string = '-save=' + js + ',' + prb_string[-1] + ',' + out_streamid_num + ',' + channelsToKeepString ### the "-save" argument wants you to put js, in-imec-num, out-imec-num first before all the channels you want to save.
     chnexcl_string = '-chnexcl={'+stream_id[-4]+';'+str(badChannelList)[1:-1].replace(" ", "")+'} ' ### we also need to say we are excluding channels, because they do seperate things. save_string is about which channels you save, but this one is about which channels are exlcuded from thing like the CAR.
 
-    catgt_command = 'runit.bat ' + dir_string + ' ' + run_string + ' ' + g_string + ' ' + '-t=0 -lf' + ' ' + prb_string + ' ' + dest_string + ' -prb_fld ' + chnexcl_string + save_string + ' ' + CMR_string + ' ' + filter_string + ' ' + ap2lf_dwnsmp_string ### channel exclusion isn't working for some reason.
+    catgt_command = ' '.join([
+        tools.get("catgt_batch_file", "runit.bat"), dir_string, run_string, g_string,
+        f'-t={catgt.get("time_range", 0)}', catgt.get("lf_flag", "-lf"), prb_string,
+        dest_string, catgt.get("probe_folder_flag", "-prb_fld"), chnexcl_string,
+        save_string, CMR_string, filter_string, ap2lf_dwnsmp_string,
+    ])
 
     catgt_output_folder_path = LFP_session_folder / Path('catgt_' + session_name) ### This is an autogenerated folder and I might even get rid of it...
 
@@ -156,11 +191,15 @@ def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannel
         for i, currentWindow in enumerate(windowsToSilenceArray):
             samps_string = '-samp="' + str(int(np.floor(currentWindow[0]/downsampleFactor))) + "," + str(int(np.ceil(currentWindow[1]/downsampleFactor))) + '"'
             overStrikeCommand = 'OverStrike ' + file_string + ' ' + samps_string + ' ' + linefill_string
-            run_in_path = str(OverStrike_location) + '\\' + overStrikeCommand
+            overstrike_command = '{} {} {} {}'.format(
+                catgt.get("overstrike_executable", "OverStrike"), file_string, samps_string,
+                '-linefill' if catgt.get("overstrike_linefill", True) else '',
+            )
+            run_in_path = str(tools["overstrike_location"]) + '\\' + overstrike_command
             subprocess.Popen(run_in_path).wait()
             pass
 
-def preprocessing_for_drift_correction(recording,doRemoveBadChannels=True,local_probeFolder=None,badChannelList=None,doSaturationReplace=False,silenceOrNoiseReplace='noise',floatDataTypeForDriftCorrection=False): ### not quite defunct because I use it for the sessionwise drift correction.
+def preprocessing_for_drift_correction(recording,doRemoveBadChannels=None,local_probeFolder=None,badChannelList=None,doSaturationReplace=None,silenceOrNoiseReplace=None,floatDataTypeForDriftCorrection=False):
     # before drift correction the preprocessing you want is very minimal. phase correction is probably a good idea.
     # Bad channel removal can be too, but also it can be good to keep them so that you can see if your correction is working
     # (because they will be fully horizontal lines across sessions uncorrected, which you can compare to the corrected real spikes)
@@ -168,6 +207,20 @@ def preprocessing_for_drift_correction(recording,doRemoveBadChannels=True,local_
     # a thing that you NEED to do is make it float32 (or 64) because spikeinterface works terribly with int data.
     recording = si.phase_shift(recording) #mandatory for NP recordings because the channels are not sampled at the same time.
 
+    data_config, run_config = get_configs()
+    drift_config = run_config["drift_correction"]
+    saturation_config = run_config["saturation"]
+    if doRemoveBadChannels is None:
+        doRemoveBadChannels = drift_config.get("remove_bad_channels", True)
+    if badChannelList is None:
+        selected_animal = next(iter(data_config["session_sets_to_run"]))
+        selected_set = data_config["session_sets_to_run"][selected_animal][0]
+        selected_regions = data_config["session_sets"][selected_animal][selected_set]["regions"]
+        badChannelList = next(iter(selected_regions.values())).get("bad_channels", [])
+    if doSaturationReplace is None:
+        doSaturationReplace = saturation_config.get("replace", False)
+    if silenceOrNoiseReplace is None:
+        silenceOrNoiseReplace = drift_config.get("saturation_mode", saturation_config.get("mode", "zeros"))
     if doRemoveBadChannels: # next remove bad channels
         #bad_channel_ids, channel_labels = si.detect_bad_channels(recording) # this seems not as good as I need it to be... Totally misses all my bad channels. Maybe just need to change parameters...
         #recording = recording.remove_channels(bad_channel_ids) # I don't want to remove them here because I am concatenating. Remove later
@@ -190,7 +243,14 @@ def preprocessing_for_drift_correction(recording,doRemoveBadChannels=True,local_
     return recording
 
 
-def spikeglx_preprocessing(recording,local_probeFolder=None,doSaturationReplace=False,silenceOrNoiseReplace='noise',floatDataTypeForDriftCorrection=False): ### not quite defunct because I use it for the sessionwise drift correction.
+def spikeglx_preprocessing(recording,local_probeFolder=None,doSaturationReplace=None,silenceOrNoiseReplace=None,floatDataTypeForDriftCorrection=False):
+    _, run_config = get_configs()
+    drift_config = run_config["drift_correction"]
+    saturation_config = run_config["saturation"]
+    if doSaturationReplace is None:
+        doSaturationReplace = saturation_config.get("replace", False)
+    if silenceOrNoiseReplace is None:
+        silenceOrNoiseReplace = drift_config.get("saturation_mode", saturation_config.get("mode", "zeros"))
 
 
     # if doSaturationReplace: ### should consider trying to get this into the local raw via catgt instead of doing it here?
@@ -230,8 +290,8 @@ def spikeglx_preprocessing_historical(recording,doRemoveBadChannels =1,skipStuff
         recording = si.bandpass_filter(recording, freq_min=300, freq_max=6000) # filter each
         if False: # here I do peak detection and localization early because it is quicker with one session... I do this to test a processing method.
             ### make a subselection of the recording so you can do this faster
-            low_bound_temp = int(round(960*30000))
-            high_bound_temp = int(round(975*30000))
+            low_bound_temp = int(round(960*recording.sampling_frequency))
+            high_bound_temp = int(round(975*recording.sampling_frequency))
             recording_preCMR = recording.frame_slice(low_bound_temp,high_bound_temp)
             recording_CMR = si.common_reference(recording_preCMR, reference='global', operator='median')
             si.highpass_spatial_filter(recording)
@@ -274,11 +334,11 @@ def spikeglx_preprocessing_historical(recording,doRemoveBadChannels =1,skipStuff
                 plt.scatter([1, 2, 3], [2, 4, 3])  # for some reason this helps the other figures load...
                 plt.show()
                 plt.figure()
-                plt.scatter(scatterArray_CMR[:, 0] / 30000, scatterArray_CMR[:, 1], s=0.01, c="black")
+                plt.scatter(scatterArray_CMR[:, 0] / recording.sampling_frequency, scatterArray_CMR[:, 1], s=0.01, c="black")
                 plt.gca().invert_yaxis()
                 plt.show()
                 plt.figure()
-                plt.scatter(scatterArray_localRef[:, 0] / 30000, scatterArray_localRef[:, 1], s=0.01, c="black")
+                plt.scatter(scatterArray_localRef[:, 0] / recording.sampling_frequency, scatterArray_localRef[:, 1], s=0.01, c="black")
                 plt.gca().invert_yaxis()
                 plt.show()
                 breakPointSpot = "here"
@@ -288,15 +348,12 @@ def spikeglx_preprocessing_historical(recording,doRemoveBadChannels =1,skipStuff
             recording = recording.astype(dtype="float32")
     if doSaturationReplace:
         if windowsToSilenceArray.any():  # code breaks when no saturation
-            if global_configs.useBugFixedSilencePeriods:
-                recording = silence_periods_file.silence_periods(recording, windowsToSilenceArray, mode=silenceOrNoiseReplace)
-            else:
-                recording = si.silence_periods(recording, windowsToSilenceArray, mode=silenceOrNoiseReplace) # Doing this before whitening might cause issues... I need to understand how whitening works better.
+            recording = si.silence_periods(recording, windowsToSilenceArray, mode=silenceOrNoiseReplace)
             # recording = recording.astype('int16') ### reportedly converting back in this way is dangerous, and I should look into it. I need to do it for harddrive space, but otherwise I shouldn't bother.
         # spikeglx_visualize(recording)
     return recording
 
-def nullify_saturations(recording,surrondingToAlsoNullify=100,local_probeFolder=None,beginningAndEndToCutOff=[0,0],loadSatsFromFile=True):
+def nullify_saturations(recording,surrondingToAlsoNullify=None,local_probeFolder=None,beginningAndEndToCutOff=None,loadSatsFromFile=None):
     # The idea behind this function is to:
     #     - Detect saturated periods like si.blank_saturation
     #           (in fact, this program does this channel by channel I think. I will actually want to apply my threshold on the
@@ -321,6 +378,14 @@ def nullify_saturations(recording,surrondingToAlsoNullify=100,local_probeFolder=
     #                The intention here is to deal with the up and down ramps involved in saturation conservatively.
 
 
+    data_config, run_config = get_configs()
+    saturation = run_config["saturation"]
+    if surrondingToAlsoNullify is None:
+        surrondingToAlsoNullify = saturation.get("surrounding_ms", 2)
+    if beginningAndEndToCutOff is None:
+        beginningAndEndToCutOff = saturation.get("begin_end_cutoff_s", [0, 0])
+    if loadSatsFromFile is None:
+        loadSatsFromFile = saturation.get("load_from_file", True)
     local_probeFolder.mkdir(parents=True, exist_ok=True)
     fileNameSat = local_probeFolder / Path("saturatedZones.csv")
     if (fileNameSat.is_file())&loadSatsFromFile:
@@ -330,9 +395,17 @@ def nullify_saturations(recording,surrondingToAlsoNullify=100,local_probeFolder=
         if (not (windowsToSilenceArray.ndim == 2))&(windowsToSilenceArray.shape[0]==2):
             windowsToSilenceArray = windowsToSilenceArray.reshape(1, 2)
     else:
-        nullSat_init_args = (recording,surrondingToAlsoNullify)# needs to be a tuple.
-        n_jobs = 10 # 1 for testing, -1 to use all cores
-        nullSat = si.ChunkRecordingExecutor(recording,func=nullify_saturations_loopImplementation,init_func = nullify_saturations_init_func,init_args=nullSat_init_args,n_jobs=n_jobs,chunk_size = 60000,handle_returns=True,progress_bar=True) # key function to let me do this here. It will parallelize everything for me.
+        nullSat_init_args = (
+            recording, surrondingToAlsoNullify, saturation.get("abs_min", -1900),
+            saturation.get("abs_max", 1900), saturation.get("fraction_channels", 0.1),
+        )
+        nullSat = si.ChunkRecordingExecutor(
+            recording, func=nullify_saturations_loopImplementation,
+            init_func=nullify_saturations_init_func, init_args=nullSat_init_args,
+            n_jobs=saturation.get("n_jobs", 1),
+            chunk_size=saturation.get("chunk_size", 30000),
+            handle_returns=True, progress_bar=saturation.get("progress_bar", True),
+        )
         windowsToSilence = nullSat.run()
         windowsToSilenceArray = np.zeros((0,2))
         for chunkSet in windowsToSilence: # yes it's silly to do this afterward instead of during, but it's really not a big deal. Default function outputs list.
@@ -343,45 +416,28 @@ def nullify_saturations(recording,surrondingToAlsoNullify=100,local_probeFolder=
         secondsToCutEnd = beginningAndEndToCutOff[1]
         windowsToSilenceArray = np.concatenate(([[0,int(recording.sampling_frequency*secondsToCutBeginning)]],windowsToSilenceArray))
         windowsToSilenceArray = np.concatenate((windowsToSilenceArray,  [[(recording.get_num_frames()-int(recording.sampling_frequency*secondsToCutEnd)),recording.get_num_frames()]]))
-    if True: # section for dealing with specific sessions. ### the fact that this exists means that I should maybe generalize this code as defining all bad regions instead of just nullifying saturations.
-        topFolderString = local_probeFolder.parts[-1]
-        if topFolderString[0:19] == "23052024_AM_Challah":
-            # ferret held in hand 45 seconds from end of recording. Should affect both probes ### but it seems like maybe it didn't work? ### Turns out the reason it didn't work is because the recordings are different lengths. Probably what was done was the PFC was unplugged, than the ACx. Rather than basing things 45 seconds from the end, we should do 665 from the beginning
-            if any(beginningAndEndToCutOff):
-               windowsToSilenceArray = np.concatenate((windowsToSilenceArray[0:-1,:], [[(int(recording.sampling_frequency * 665)),recording.get_num_frames()]]))
-
-            else:
-                windowsToSilenceArray = windowsToSilenceArray[windowsToSilenceArray[:,0] <= (int(recording.sampling_frequency * 665)),:] # removes the silent periods following this.
-                windowsToSilenceArray = np.concatenate((windowsToSilenceArray, [[(int(recording.sampling_frequency * 665)),recording.get_num_frames()]]))
-        if topFolderString[0:19] == "05062024_PM_Challah":
-            # ferret held in hand 60 seconds in the middle of the recording... should affect both probes. Might affect behavior. I'll assume at first there is no overlap with detected saturations because why would there be...
-                beginTime = 296.4
-                endTime = 358.2
-                windowsToSilenceArray = np.concatenate((windowsToSilenceArray, [
-                    [int(30000*beginTime),
-                     int(30000*endTime)],]))
-
     return windowsToSilenceArray
 def applyOverStrike(rawFileName,OverStrike_location,windowsToSilenceArray):
-
+    run_config = get_configs()[1]
+    catgt = run_config["catgt"]
     file_string = '-file=' + '"' + str(rawFileName) + '"'
-    linefill_string = '-linefill' ### make a blank string if you don't want.
+    linefill_string = '-linefill' if catgt.get("overstrike_linefill", True) else ''
     for i, currentWindow in enumerate(windowsToSilenceArray):
         samps_string = '-samp="' + str(int(currentWindow[0])) + "," + str(int(currentWindow[1])) + '"'
-        overStrikeCommand = 'OverStrike ' + file_string + ' ' + samps_string + ' ' + linefill_string
+        overStrikeCommand = catgt.get("overstrike_executable", "OverStrike") + ' ' + file_string + ' ' + samps_string + ' ' + linefill_string
         run_in_path = str(OverStrike_location) + '\\' + overStrikeCommand
         subprocess.Popen(run_in_path).wait()
         pass
 
-def nullify_saturations_init_func(recording,surrondingToAlsoNullify):
+def nullify_saturations_init_func(recording,surrondingToAlsoNullify,abs_sat_min=-1900,abs_sat_max=1900,fraction_channels=0.1):
     # It seems like the only place you can put any information about the recording or w/e is here.
     worker_ctx = {}
     worker_ctx["recording"] = recording
     worker_ctx["surrondingToAlsoNullify_samples"] = round(((recording.sampling_frequency))*(surrondingToAlsoNullify/1000))
     worker_ctx["kernelForSurroundingConvolution"] = np.ones((worker_ctx["surrondingToAlsoNullify_samples"]*2 + 1))
-    worker_ctx["abs_sat_min"] = -1880 # in my experience it floats around 1900. Also actual max is supposed to be 1955.
-    worker_ctx["abs_sat_max"] = 1880 # splitting them because it really depends. I don't think I actually have problems with max sat currently...
-    worker_ctx["fractionChannelsSatToEnforceExclusion"] = 0.5 # in some ways feels low, but it is a lot. And doing plots, this seems like it serves.
+    worker_ctx["abs_sat_min"] = abs_sat_min
+    worker_ctx["abs_sat_max"] = abs_sat_max
+    worker_ctx["fractionChannelsSatToEnforceExclusion"] = fraction_channels
     return worker_ctx
 def nullify_saturations_loopImplementation(segment_index, frame_start, frame_stop, worker_ctx):
     # function to pass to ChunkRecordingExecutor.
@@ -452,7 +508,7 @@ def nullify_saturations_loopImplementation(segment_index, frame_start, frame_sto
             raise "see what is up"
     return rangesToSilence
 
-def size_pad_to_add(recording, bin_s=6.0):
+def size_pad_to_add(recording, bin_s=None):
     """ Function computing the size of the pad to add to a recording in to make it an integer multiple of bin_s
     Parameters:
         recording: recording object (cf spikeinterface doc)
@@ -461,6 +517,8 @@ def size_pad_to_add(recording, bin_s=6.0):
         pad_size: int, size of the pad to add to the recording (in number of samples)
         pad_bounds: list, future boundaries of the pad once it's added to be able to replace it with noise
         """
+    if bin_s is None:
+        bin_s = get_configs()[1].get("legacy_spikeinterface", {}).get("bin_s", 6.0)
     sampling_freq =recording.get_sampling_frequency()
     bin_samples = int(np.round(bin_s* sampling_freq))
     size_recording = recording.get_num_samples() -1
@@ -468,58 +526,37 @@ def size_pad_to_add(recording, bin_s=6.0):
     pad_bounds= [size_recording, size_recording + pad_size]
     return pad_size, pad_bounds
 
-def spikesorting_pipeline(recording, output_folder, sorter='kilosort4',concatenated=False):
+def spikesorting_pipeline(recording, output_folder, sorter=None,concatenated=False):
+    _, run_config = get_configs()
+    legacy = run_config.get("legacy_spikeinterface", {})
+    if sorter is None:
+        sorter = legacy.get("sorter", "kilosort4")
     working_directory = Path(output_folder) / 'tempDir'
     # if (working_directory / 'binary.json').exists():
     #     recording = si.load_extractor(working_directory)
     # else:
     # job_kwargs = dict(n_jobs=-1, chunk_duration='1s', progress_bar=True)
     # recording = recording.save(folder = working_directory, format='binary', **job_kwargs)
-    # picklePath = Path('C:/Jeffrey/Projects/SpeechAndNoise/PythonAnalyses/pickleFolder/driftPickle/')
     # pickleName = 'preSorting.pkl'
     # pickleJar = dict(recording = recording)
     # with open(picklePath / pickleName, 'wb') as file:
     #     pickle.dump(pickleJar, file)
-    doDefaultKilosort = True
-
-
-    if doDefaultKilosort:
-        if sorter=='kilosort4':
-            sorting = si.run_sorter(
-                sorter_name=sorter,
-                recording=recording,
-                #output_folder = working_directory / f'{sorter}_output', ### seems like this should be called folder? Maybe this is a new version thing.
-                folder = working_directory / f'{sorter}_output',
-                verbose=True,
-                do_CAR=True, # common average reference
-                skip_kilosort_preprocessing=False, # skips bandpass filter and whitening if true
-                do_correction=True, #skips motion correction if false
-                save_extra_vars=True, #save everything
-                save_preprocessed_copy=False, #
-                delete_recording_dat=True # now true because this is whitened, which makes it useless. By the way, I believe this is before motion correction, the above is after.
-                )
-        else:
-            raise ValueError('Unsupported Spikesorter.')
-    else:
-        if sorter=='kilosort4':
-            sorting = si.run_sorter(
-                sorter_name=sorter,
-                recording=recording,
-                output_folder = working_directory / f'{sorter}_output',
-                verbose=True,
-                do_CAR=False, # we want to skip CAR because we already have
-                skip_kilosort_preprocessing=True, # skips bandpass filter and whitening.
-                do_correction=False, #skips motion correction
-                save_extra_vars=True, #save everything
-                save_preprocessed_copy=False, #
-                delete_recording_dat=True # now true because this is whitened, which makes it useless. By the way, I believe this is before motion correction, the above is after.
-                )
-        else:
-            raise ValueError('Unsupported Spikesorter.')
+    if sorter != 'kilosort4':
+        raise ValueError('Unsupported Spikesorter.')
+    sorter_kwargs = dict(legacy.get("sorter_run_kwargs", {}))
+    sorter_kwargs.setdefault("verbose", True)
+    sorting = si.run_sorter(
+        sorter_name=sorter,
+        recording=recording,
+        folder=working_directory / f'{sorter}_output',
+        **sorter_kwargs,
+    )
     return sorting
 
 
 def spikesorting_postprocessing(sorting, output_folder):
+    _, run_config = get_configs()
+    legacy = run_config.get("legacy_spikeinterface", {})
 
     ### It has been a long time since I looked at this and it is basically irrelevant to the unitmatch pipeline. So, watch out.
 
@@ -528,9 +565,9 @@ def spikesorting_postprocessing(sorting, output_folder):
     output_folder.mkdir(exist_ok=True, parents=True)
     rec = sorting._recording # grab the recording object
     outDir = output_folder / sorting.name
-    censored_period_ms = 0.3 ### Jules had this as 2 but he claimed this was above the default. Using 2 would probably miss inhibitory cells.
-    si.set_global_job_kwargs(n_jobs=15)
-    jobs_kwargs = dict(chunk_duration='1s', progress_bar=True)
+    censored_period_ms = legacy.get("censored_period_ms", 0.3)
+    si.set_global_job_kwargs(n_jobs=legacy.get("n_jobs", 15))
+    jobs_kwargs = dict(chunk_duration=legacy.get("chunk_duration", "1s"), n_jobs=legacy.get("n_jobs", 15), progress_bar=True)
     sorting = si.remove_duplicated_spikes(sorting, censored_period_ms=censored_period_ms)
     sorting = si.remove_excess_spikes(sorting, rec)
 
@@ -548,7 +585,7 @@ def spikesorting_postprocessing(sorting, output_folder):
         #
         we = si.create_sorting_analyzer(recording=rec, sorting=sorting, folder=outDir / 'sortings_folder',
                                         format="binary_folder",
-                                        sparse=True
+                                        sparse=legacy.get("create_sparse_analyzer", True)
                                         )
 
         ### I've basically translated the compatibility code below.
@@ -556,10 +593,10 @@ def spikesorting_postprocessing(sorting, output_folder):
         # other_kwargs, new_job_qwargs = split_job_kwargs(**jobs_kwargs)
 
     if not we.has_extension("random_spikes"):
-        we.compute("random_spikes",max_spikes_per_unit=300) ### subselects a number of spikes for downstream analysis.
+        we.compute("random_spikes",max_spikes_per_unit=legacy.get("max_spikes_per_unit", 300))
         print('Marker 3')
     if not we.has_extension("waveforms"):
-        we.compute("waveforms",ms_before=2,ms_after=3.) ### has the waveforms corresponding to the subset of spikes selected above, on all relevant channels (with relevancy decided by the "sparsity"). You in fact only need to collect these to calculate the templates, which can also be calculated directly from the random spikes and raw data. But, the waveforms file should be smaller than the raw data I think, and also if you use the raw data directly, apparently you can only calculate mean and standard deviation, and not median or percentile. Anyway, I dont mind calculating waveforms as long as it works.
+        we.compute("waveforms",ms_before=legacy.get("waveforms_ms_before", 2.0),ms_after=legacy.get("waveforms_ms_after", 3.0))
         print('Marker 4')
     # if not we.has_extension("templates"):
     we.compute("templates")  ### used for downstream analysis and are useful to look at to see if your results make sense.
@@ -577,7 +614,7 @@ def spikesorting_postprocessing(sorting, output_folder):
     if not (outDir / 'report').exists():
         si.export_to_phy(we, outDir / 'phy_folder',
                          verbose=True,
-                         compute_pc_features=False,
+                         compute_pc_features=legacy.get("compute_pc_features", False),
                          copy_binary=False,
                          remove_if_exists=True,
                          **jobs_kwargs,

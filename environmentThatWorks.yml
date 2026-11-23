@@ -12,6 +12,7 @@ dependencies:
   - matplotlib
   - h5py
   - pandas
+  - pyyaml
   - xarray
   - zarr
   - scikit-learn

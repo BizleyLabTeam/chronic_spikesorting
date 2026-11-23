@@ -1,0 +1,48 @@
+# Dataset selection and machine-specific folders. Add one mapping per animal/session set.
+paths:
+  nas_root: Z:/
+  local_root: C:/Users/vmtar/Documents/spikesorting_test_output/processed_raw
+  output_root: C:/Users/vmtar/Documents/spikesorting_test_output/spikesorting_output
+  lfp_root: D:/failedpathonpurpose
+  behavior_root: C:/failedpathonpurpose
+  figures_root: C:/Users/vmtar/Documents/spikesorting_test_output/figures
+  stimuli_root: F:/failedpathonpurpose
+
+date_glob_format: "%Y%m%d"
+recording_format: spikeglx
+# Session folder matching beneath paths.nas_root / animal.
+# Use AM, PM, or both for period. The template supports {animal}, {animal_label}, {date}, and {period}.
+session_discovery:
+  period: both
+  folder_glob: "{animal_label}_*{date}*_{period}_g0"
+survey_override: false
+session_sets_to_run:
+  F2406_Chevre: [SessionSet01]
+
+# Use an explicit list of session folder prefixes or ISO date ranges (end exclusive).
+# Each session set can contain multiple regions, and many sets can be selected above.
+session_sets:
+  F2501_Maple:
+    SessionSet01:
+      animal_label: Maple
+      notes: "test session just to see what works"
+      date_start: "2026-09-30"
+      date_end: "2026-10-01"
+      regions:
+        AC: {stream_id: imec0.ap, channel_map: Maple_n05_thalamus01Ctx4.imro, bad_channels: []}    
+  F2302_Challah:
+    SessionSet01:
+      animal_label: Challah
+      notes: "early sessions to look for sound evoked responses"
+      date_start: "2026-06-01"
+      date_end: "2026-06-02"
+      regions:
+        AC: {stream_id: imec0.ap, channel_map: Challah_AC_shank0_HPC_shank2.imro, bad_channels: [66, 105, 149, 170, 175, 209, 210, 239, 354, 369]}
+  F2406_Chevre:
+    SessionSet01:
+      animal_label: Chevre
+      note: "hippocampus stuff I think, 1 week in July"
+      date_start: "2026-07-13"
+      date_end: "2026-07-18"
+      regions:
+        AC: {stream_id: imec0.ap, channel_map: Chevre_top_ACx_AllShanks_02o.imro, bad_channels: []}  

@@ -30,26 +30,27 @@ from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.gatherSessionS
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySessionSetParameters import SpecifySessionSetParameters
 
 def main():
-    npsf = 30000 # neuropixels sampling frequency, doens't need to be exact here.
+    npsf = all_VE_config.np_fs
     doSessionRasters = True
     bombcellUnitTypesToKeep = [1,2] # 0 is noise, 1 good, 2 MUA, 3 nonsoma
-    recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
+    from config import iter_selected_session_sets
 
     #sessionSetParams = SpecifySessionSetParameters(all_VE_config.ferret,SessionSetName,all_VE_config.regionLabels)
-    toIterate = list(combination_product([all_VE_config.ferret],recordingZones,all_VE_config.regionLabels)) ### this function seems nondeterministic?
+    toIterate = list(iter_selected_session_sets())
     toIterate = sorted(toIterate,key=lambda tup: tup[2]) ### first sort by region
     toIterate = sorted(toIterate,key=lambda tup: tup[1]) ### then sort by session set.
     pass
     for ixixi,sessionSet in enumerate(toIterate):
         sessionSetParams = SpecifySessionSetParameters(sessionSet[0],sessionSet[1],sessionSet[2])
         NAS_SessionsWithinMap,Local_SessionsWithinMap = getSessionsWithinMapForSessionSet(sessionSetParams)
+        output_folder = sessionSetParams["output_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2]
         setUpSessionLoop = True # preferred in case "i==0" is not working
         largestSpikeSampleTimeEachSession = np.zeros(len(Local_SessionsWithinMap))
         if doSessionRasters:
             sessionRasterPlots = dict()
         for i, session in enumerate(Local_SessionsWithinMap):
             session_name = session.name
-            sorter_output_folder =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / session_name
+            sorter_output_folder = output_folder / session_name
             spike_clusters = np.load(sorter_output_folder / 'spike_clusters.npy')
             # amplitudes = np.load(sorter_output_folder / 'amplitudes.npy')
             # full_amp = np.load(sorter_output_folder / 'full_amp.npy')
@@ -256,4 +257,9 @@ def main():
 
 
 if __name__ == '__main__':
+    from config import configure_from_cli
+    configure_from_cli()
+    if 'outerLoopConfigs' in globals():
+        import importlib
+        importlib.reload(outerLoopConfigs)
     main()

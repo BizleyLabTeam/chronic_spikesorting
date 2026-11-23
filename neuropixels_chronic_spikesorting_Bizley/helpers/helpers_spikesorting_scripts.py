@@ -184,4 +184,3 @@ def getSessionsWithinMap(NAS_SessionsInOrder,session_path,stream_id,channel_map_
     # This is a function which will perform and plot the kilosort drift correction, primarily for visualization.
     # The preprocesing should aleady be done; the ideal place to check is right before the sorting algorithm is
     # run, because that will be what the real drift correction is run on.
-    #si.correct_motion(recording,preset="kilosort_like",folder="D:/Jeffrey/Output/testDriftCorrection",output_motion_info=True)

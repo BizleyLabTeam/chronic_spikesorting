@@ -16,20 +16,22 @@ from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.getSessionsWit
 from generally_useful_functions_Bizley.getCorrectRecordingForRegion import getCorrectRecordingForRegion
 
 import neuropixels_chronic_spikesorting_Bizley.all_VE_config as all_VE_config # this config file should be synced between all your VEs.
+from config import get_configs, iter_selected_session_sets
 
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.gatherSessionSetListForFerret import gatherSessionSetListForFerret
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySessionSetParameters import SpecifySessionSetParameters
 
 def main():
     ### main arguments/constants
-    kilosort_version = 4 ### not future proofed. But algorithmically finding the ks version wouldn't change that.
-    reloadExistingResults = False # should never want to reload existing results if you are running this code, as its only purpose is to save results. Another variable will skip stuff already done.
-    skipIfAlreadyDone = False # not actually implemented yet. I should do it before I even commit this comment though.
-    plot_withPlannedBreakpoints = True ### turns on plotting; intended to be used with breakpoints. Hense, the name.
+    _, run_config = get_configs()
+    bombcell_config = run_config.get("bombcell", {})
+    kilosort_version = bombcell_config.get("kilosort_version", 4)
+    reloadExistingResults = bombcell_config.get("reload_existing_results", False)
+    skipIfAlreadyDone = bombcell_config.get("skip_if_already_done", False)
+    plot_withPlannedBreakpoints = bombcell_config.get("plot_with_breakpoints", True)
 
     ### set up sessionSet loops, standard style
-    recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
-    toIterate = list(combination_product([all_VE_config.ferret],recordingZones,all_VE_config.regionLabels)) ### this function seems nondeterministic?
+    toIterate = list(iter_selected_session_sets())
     toIterate = sorted(toIterate,key=lambda tup: tup[2]) ### first sort by region
     toIterate = sorted(toIterate,key=lambda tup: tup[1]) ### then sort by session set.
     ### session set loop
@@ -71,7 +73,7 @@ def main():
                 session_configs[i]["meta_file"] = list(local_probeFolder.glob('*.meta'))[0]
                 session_configs[i]["raw_file"] = list(local_probeFolder.glob('*.bin'))[0]
 
-                sorter_output_folder =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / session_name
+                sorter_output_folder = sessionSetParams["output_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2] / session_name
                 session_configs[i]["ks_dir"] = sorter_output_folder
                 session_configs[i]["save_path"] = session_configs[i]["ks_dir"] ### As far as I can tell, this will always be the best place to save bombcell results.
 
@@ -97,4 +99,9 @@ def main():
 
 
 if __name__ == '__main__':
+    from config import configure_from_cli
+    configure_from_cli()
+    if 'outerLoopConfigs' in globals():
+        import importlib
+        importlib.reload(outerLoopConfigs)
     main()
