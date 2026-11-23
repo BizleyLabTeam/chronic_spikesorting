@@ -7,10 +7,12 @@
 ### that can interpret it later. 
 from datetime import date, time, datetime, timedelta
 import pandas as pd
+import neuropixels_chronic_spikesorting_Bizley.all_VE_config as all_VE_config
 
 def SpecifySessionSetParameters(ferret,SessionSetName,BrainRegion):
     SessionSetParams = dict()
-    dateFormat ='%d%m%Y' ### This is my, Jeff's, date format. Lower case means two digits, capital means 4 (for years at least).
+    if all_VE_config.projectLabel == 'Jeffrey':
+        dateFormat ='%d%m%Y' ### This is my, Jeff's, date format. Lower case means two digits, capital means 4 (for years at least).
     if ferret == 'F2302_Challah':
         SessionSetParams['ferret'] = 'F2302_Challah'
         SessionSetParams['ferret_no_id'] = 'Challah'
