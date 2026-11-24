@@ -52,10 +52,10 @@ track of it...
 
 ## Configuration
 
-The pipeline reads two YAML files from the `config` folder:
+The pipeline reads two local YAML files from the `config` folder. They are ignored by Git so each person can edit their own settings without changing other users' copies. To set up a fresh checkout, copy `config/data_config.example.yaml` to `config/data_config.yaml` and `config/run_config.example.yaml` to `config/run_config.yaml`, then edit the local copies.
 
-- `config/data_config.yaml` contains machine-specific paths, session folder discovery rules, selected animals/session sets, date ranges, regions, channel maps, and bad channels.
-- `config/run_config.yaml` contains external tool locations, sampling rates, CatGT, saturation, sorting, drift correction, workflow, and SpikeInterface settings.
+- `config/data_config.yaml` contains machine-specific paths, session folder discovery rules, selected animals/session sets, date ranges, regions, channel maps, and bad channels. Its tracked template is `config/data_config.example.yaml`.
+- `config/run_config.yaml` contains external tool locations, sampling rates, CatGT, saturation, sorting, drift correction, workflow, and SpikeInterface settings. Its tracked template is `config/run_config.example.yaml`.
 
 Edit the paths in those files for your computer. Data paths and the CatGT/OverStrike locations can be absolute or relative to their YAML file. Set `recording_format` in the data config; SpikeGLX is currently supported. `date_end` is an exclusive upper bound. Select work by editing `session_sets_to_run`; session metadata is stored under `session_sets` by animal and set, with per-region stream IDs, channel maps, and bad channels.
 
@@ -69,7 +69,7 @@ python -m scripts.get_drift_per_session --data-config path/to/data.yaml --run-co
 python -m scripts.runBombcellEachSession --data-config path/to/data.yaml --run-config path/to/run.yaml
 ```
 
-If paths are omitted, the scripts use `config/data_config.yaml` and `config/run_config.yaml`. You can also select files with the `NEUROPIXELS_DATA_CONFIG` and `NEUROPIXELS_RUN_CONFIG` environment variables.
+If paths are omitted, the scripts use your local `config/data_config.yaml` and `config/run_config.yaml`. You can also select files with the `NEUROPIXELS_DATA_CONFIG` and `NEUROPIXELS_RUN_CONFIG` environment variables. If either local file is missing, the loader tells you which example to copy.
 
 YAML files are loaded with PyYAML, which is included in `environment.yml`.
 

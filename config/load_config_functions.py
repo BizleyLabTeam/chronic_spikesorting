@@ -22,7 +22,13 @@ DEFAULT_RUN_CONFIG = CONFIG_DIR / "run_config.yaml"
 def _load_yaml(path: str | Path) -> dict[str, Any]:
     path = Path(path).expanduser().resolve()
     if not path.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
+        example_path = path.with_name(f"{path.stem}.example{path.suffix}")
+        hint = (
+            f" Copy {example_path.name} to {path.name} and edit the paths/settings first."
+            if example_path.is_file()
+            else ""
+        )
+        raise FileNotFoundError(f"Configuration file not found: {path}.{hint}")
     with path.open("r", encoding="utf-8") as stream:
         data = yaml.safe_load(stream)
     if not isinstance(data, dict):

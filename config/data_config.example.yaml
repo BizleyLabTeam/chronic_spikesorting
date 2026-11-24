@@ -1,0 +1,34 @@
+# Copy this file to data_config.yaml and replace the example values.
+paths:
+  nas_root: Z:/path/to/neuropixels
+  local_root: C:/path/to/processed_raw
+  output_root: C:/path/to/spikesorting_output
+  lfp_root: C:/path/to/lfp_output
+  behavior_root: C:/path/to/behavior_data
+  figures_root: C:/path/to/figures
+  stimuli_root: C:/path/to/stimuli
+
+date_glob_format: "%Y%m%d"
+recording_format: spikeglx
+session_discovery:
+  period: both # AM, PM, or both
+  folder_glob: "{animal_label}_*{date}*_{period}_g0"
+survey_override: false
+
+# Select the session sets to process. Keys and names must also appear below.
+session_sets_to_run:
+  ExampleAnimal: [SessionSet01]
+
+# date_end is exclusive. Add each animal, session set, and region used by your data.
+session_sets:
+  ExampleAnimal:
+    SessionSet01:
+      animal_label: Example
+      notes: "Replace with a description of this session set"
+      date_start: "2025-01-01"
+      date_end: "2025-01-02"
+      regions:
+        ExampleRegion:
+          stream_id: imec0.ap
+          channel_map: example_channel_map.imro
+          bad_channels: []
