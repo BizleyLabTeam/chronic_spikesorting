@@ -24,5 +24,5 @@ set LOCALARGS=-dir=Y:\jic\Susu_datasets -run=SC011_022219 -g=0 -t=0,570 ^
 
 if [%1]==[] (set ARGS=%LOCALARGS%) else (set ARGS=%*)
 
-%~dp0CatGT %ARGS%
+"%~dp0CatGT.exe" %ARGS%
 

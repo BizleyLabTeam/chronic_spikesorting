@@ -26,21 +26,19 @@ from generally_useful_functions_Bizley.getCorrectRecordingForRegion import getCo
 from neuropixels_chronic_spikesorting_Bizley.helpers.helpers_spikesorting_scripts import sort_np_sessions, get_channelmap_names
 from neuropixels_chronic_spikesorting_Bizley.spikesorting import spikesorting_pipeline, spikesorting_postprocessing, preprocessing_for_drift_correction
 from neuropixels_chronic_spikesorting_Bizley.helpers.npyx_metadata_fct import load_meta_file
+from config import get_configs, iter_selected_session_sets
 
 
 
 def main():
-    if True: ### the following arguments are for debug
-        pass
-        useLocalNotNAS = False ### I remember reading that results of drift correction are better for rawer data, but don't totally believe it. So I want to hedge. The thing they said was really bad for it was the whitening anyway. ### Drift correction stopped working and this is my best guess why, so I turned it back to False.
-
-    runDontLoadDriftCorrection = True # True to run drift correction, false to load and plot it.
+    _, run_config = get_configs()
+    motion_config = run_config["drift_correction"]
+    useLocalNotNAS = motion_config.get("use_local_data", False)
+    runDontLoadDriftCorrection = motion_config.get("run", True)
 
 
     ### set up the big loop (through session sets)
-    recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
-    #sessionSetParams = SpecifySessionSetParameters(all_VE_config.ferret,SessionSetName,all_VE_config.regionLabels)
-    toIterate = list(combination_product([all_VE_config.ferret],recordingZones,all_VE_config.regionLabels)) ### this function seems nondeterministic?
+    toIterate = list(iter_selected_session_sets())
     toIterate = sorted(toIterate,key=lambda tup: tup[2]) ### first sort by region
     toIterate = sorted(toIterate,key=lambda tup: tup[1]) ### then sort by session set.
 
@@ -49,9 +47,10 @@ def main():
     for ixixi,sessionSet in enumerate(toIterate): #### ixixi might be sessionSetCount but I probably did not actually maintain. sessionSet can also make currentSetOfSessions but is never going to be equal.
         sessionSetParams = SpecifySessionSetParameters(sessionSet[0],sessionSet[1],sessionSet[2])
         NAS_SessionsWithinMap,Local_SessionsWithinMap = getSessionsWithinMapForSessionSet(sessionSetParams)
-        (all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2]).mkdir(parents=True, exist_ok=True)
+        output_folder = sessionSetParams["output_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2]
+        output_folder.mkdir(parents=True, exist_ok=True)
 
-        errorFileName =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / "errorTrackingMotionCorrection.txt"
+        errorFileName = output_folder / "errorTrackingMotionCorrection.txt"
 
         dict_of_recordings = {}
         for i,(session,local_session) in enumerate(zip(NAS_SessionsWithinMap,Local_SessionsWithinMap)):
@@ -71,10 +70,10 @@ def main():
                 # recording = si.read_cbin_ibl(probeFolder)  # for compressed
                 if not useLocalNotNAS:
                     recording = si.read_spikeglx(probeFolder, stream_id=usedImro) # for uncompressed
-                    recording = preprocessing_for_drift_correction(recording, doRemoveBadChannels=outerLoopConfigs.doRemoveBadChannels,local_probeFolder=local_probeFolder,badChannelList=sessionSetParams['badChannelList'],doSaturationReplace=outerLoopConfigs.doSaturationReplace,silenceOrNoiseReplace=outerLoopConfigs.silenceOrNoiseReplace_sessionwise,floatDataTypeForDriftCorrection=True)
+                    recording = preprocessing_for_drift_correction(recording, doRemoveBadChannels=motion_config.get("remove_bad_channels", True),local_probeFolder=local_probeFolder,badChannelList=sessionSetParams['badChannelList'],doSaturationReplace=outerLoopConfigs.doSaturationReplace,silenceOrNoiseReplace=motion_config.get("saturation_mode", "zeros"),floatDataTypeForDriftCorrection=motion_config.get("float_dtype", True))
                 else:
                     recording = si.read_spikeglx(local_probeFolder, stream_id=usedImro) ### will have already been preprocessed if done properly!
-                    if not (recording.dtype == 'float32'):
+                    if motion_config.get("float_dtype", True) and not (recording.dtype == 'float32'):
                         recording = recording.astype(dtype="float32") ### must be the case for drift correction
                 if sessionSet[1] in dict_of_recordings:  # I did this for basically no reason. The reason is because it fits the expected format of Jules and because someday I may want to organize things by the probe map.
                     dict_of_recordings[sessionSet[1]].append(recording)
@@ -85,8 +84,8 @@ def main():
 
         # motionMapFolder_used = all_VE_config.motionMapFolder / all_VE_config.ferret / all_VE_config.sessionSetLabel ### recently removed a redundant "spikesorted" from this folder chain.
 
-        motionMapFolder_used = all_VE_config.local_neural_data / sessionSet[0] / sessionSet[1] / sessionSet[2] / 'motionMapFolder'
-        uncalibratedSamplingRate = 30000 ### named as such so that it is noticable. Want to deal with this soon. Probably doesn't actually matter even a little for this application, though.
+        motionMapFolder_used = sessionSetParams["local_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2] / 'motionMapFolder'
+        uncalibratedSamplingRate = run_config["sampling"].get("np_fs", 30000)
         if runDontLoadDriftCorrection: # loading and processing are pretty well split this time, the result of the load will be in a different format. Plotting will be load-relegated, drift saving will be here (maybe later, both)
         ### first split shanks.
             for ixi,currentRecording in enumerate(multirecordingInput[sessionSet[1]]): ### malheurusement I need to do my shank splitting on each session pre-concatenation... I can either do that here or earlier... But it actually is not so big a deal to just do it here, let's do it here.
@@ -109,26 +108,38 @@ def main():
 
 
 
-            job_kwargs = dict(chunk_duration='1s',n_jobs=outerLoopConfigs.desired_n_jobs,progress_bar=True) #,
+            job_kwargs = dict(chunk_duration=motion_config.get("chunk_duration", "1s"), n_jobs=motion_config.get("n_jobs", 1), progress_bar=motion_config.get("progress_bar", True))
             ### motion correction
             for shankCount, enumerateIsNotWorkingSoIgnoreThis in enumerate(multirecordingSplit):
 
                 multirecordingThisShank = multirecordingSplit[shankCount]
 
-                peaks = detect_peaks(recording=multirecordingThisShank, method="locally_exclusive", peak_sign="neg",
-                                         detect_threshold=5.0, exclude_sweep_ms=0.1, radius_um=50,
+                peaks = detect_peaks(recording=multirecordingThisShank,
+                                         method=motion_config.get("peak_detection_method", "locally_exclusive"),
+                                         peak_sign=motion_config.get("peak_sign", "neg"),
+                                         detect_threshold=motion_config.get("detect_threshold", 5.0),
+                                         exclude_sweep_ms=motion_config.get("exclude_sweep_ms", 0.1),
+                                         radius_um=motion_config.get("radius_um", 50),
                                          **job_kwargs)  # seems like there isn't a unique peak detection algorithm for ks? I don't actually think that's true, I believe they use templates... But with SI, maybe not. I should maybe just look into the high level function and see what is done
-                peak_locations = localize_peaks(recording=multirecordingThisShank, peaks=peaks, method="grid_convolution",
-                                                weight_method={"mode": "gaussian_2d",
-                                                               "sigma_list_um": np.linspace(5, 25, 5)}, **job_kwargs)
+                peak_locations = localize_peaks(recording=multirecordingThisShank, peaks=peaks,
+                                                method=motion_config.get("localization_method", "grid_convolution"),
+                                                weight_method={"mode": motion_config.get("localization_mode", "gaussian_2d"),
+                                                               "sigma_list_um": motion_config.get("localization_sigma_um", [5, 10, 15, 20, 25])}, **job_kwargs)
                 motion = estimate_motion(recording=multirecordingThisShank, peaks=peaks,
-                                         peak_locations=peak_locations, method="iterative_template", bin_s=outerLoopConfigs.bin_s_sessionCat,
-                                         rigid=False, win_step_um=50.0, win_scale_um=100.0, hist_margin_um=0,
-                                         win_shape="gaussian",
-                                         num_amp_bins=5)  # this works on my test case. ks defaults, but with win_scale_um=100.0,  win_step_um=50.0, win_shape="gaussian", num_amp_bins=5, bin_s=6.0
+                                         peak_locations=peak_locations,
+                                         method=motion_config.get("motion_method", "iterative_template"),
+                                         bin_s=motion_config.get("bin_s", 6.0),
+                                         rigid=motion_config.get("rigid", False),
+                                         win_step_um=motion_config.get("win_step_um", 50),
+                                         win_scale_um=motion_config.get("win_scale_um", 100),
+                                         hist_margin_um=motion_config.get("hist_margin_um", 0),
+                                         win_shape=motion_config.get("win_shape", "gaussian"),
+                                         num_amp_bins=motion_config.get("num_amp_bins", 5))
                 rec_corrected = interpolate_motion(recording=multirecordingThisShank, motion=motion,
-                                                           border_mode="force_extrapolate",
-                                                           spatial_interpolation_method="kriging", sigma_um=20., p=2)
+                                                           border_mode=motion_config.get("border_mode", "force_extrapolate"),
+                                                           spatial_interpolation_method=motion_config.get("spatial_interpolation_method", "kriging"),
+                                                           sigma_um=motion_config.get("sigma_um", 20),
+                                                           p=motion_config.get("p", 2))
 
 
                 peak_locations_after = sm.correct_motion_on_peaks(peaks, peak_locations, motion, rec_corrected)
@@ -193,7 +204,7 @@ def main():
                     rows = []
                     for i in range(N):
                         for j in range(M):
-                            rows.append((all_VE_config.sessionsToDo[i], record_motion_this_shank[i, j], record_space_this_shank[i, j])) ### WARNING use of sessionsToDo may be wrong here
+                            rows.append((session_name, record_motion_this_shank[i, j], record_space_this_shank[i, j]))
 
                     df_weeks = pd.DataFrame(rows, columns=["session_week", "motion", "center_space_bin"])
 
@@ -256,11 +267,11 @@ def main():
                 plt.scatter([1, 2, 3], [2, 4, 3])  # for some reason this helps the other figures load...
                 plt.show()
                 plt.figure()
-                plt.scatter(scatterArray[:, 0] / 30000, scatterArray[:, 1], s=0.0005, c="black")
+                plt.scatter(scatterArray[:, 0] / all_VE_config.np_fs, scatterArray[:, 1], s=0.0005, c="black")
                 plt.gca().invert_yaxis()
                 plt.show()
                 plt.figure()
-                plt.scatter(scatterArray[:, 0] / 30000, scatterArray[:, 2], s=0.0005, c="black")
+                plt.scatter(scatterArray[:, 0] / all_VE_config.np_fs, scatterArray[:, 2], s=0.0005, c="black")
                 plt.gca().invert_yaxis()
                 plt.show()
                 plt.figure()
@@ -277,6 +288,11 @@ def main():
 
 
 if __name__ == '__main__':
+    from config import configure_from_cli
+    configure_from_cli()
+    if 'outerLoopConfigs' in globals():
+        import importlib
+        importlib.reload(outerLoopConfigs)
     main()
 
 

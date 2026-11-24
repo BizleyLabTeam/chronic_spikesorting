@@ -50,10 +50,28 @@ track of it...
 
 
 
-## config.py
+## Configuration
 
-ideally, this would be where many of the key file locations would be adjusted, and mostly we do a good job at this.
-import config to get them. This will also include, for example, the tdt sample rate. 
+The pipeline reads two YAML files from the `config` folder:
+
+- `config/data_config.yaml` contains machine-specific paths, session folder discovery rules, selected animals/session sets, date ranges, regions, channel maps, and bad channels.
+- `config/run_config.yaml` contains external tool locations, sampling rates, CatGT, saturation, sorting, drift correction, workflow, and SpikeInterface settings.
+
+Edit the paths in those files for your computer. Data paths and the CatGT/OverStrike locations can be absolute or relative to their YAML file. Set `recording_format` in the data config; SpikeGLX is currently supported. `date_end` is an exclusive upper bound. Select work by editing `session_sets_to_run`; session metadata is stored under `session_sets` by animal and set, with per-region stream IDs, channel maps, and bad channels.
+
+CatGT filter strings specify the high-pass cutoff followed by the low-pass cutoff: use `butter,12,300,6000` for 300–6000 Hz AP filtering and `butter,12,0,400` for 0–400 Hz LF filtering.
+
+The command line scripts accept explicit configuration paths:
+
+```text
+python -m scripts.spikesort_folder --data-config path/to/data.yaml --run-config path/to/run.yaml
+python -m scripts.get_drift_per_session --data-config path/to/data.yaml --run-config path/to/run.yaml
+python -m scripts.runBombcellEachSession --data-config path/to/data.yaml --run-config path/to/run.yaml
+```
+
+If paths are omitted, the scripts use `config/data_config.yaml` and `config/run_config.yaml`. You can also select files with the `NEUROPIXELS_DATA_CONFIG` and `NEUROPIXELS_RUN_CONFIG` environment variables.
+
+YAML files are loaded with PyYAML, which is included in `environment.yml`.
 
 ## catgt
 

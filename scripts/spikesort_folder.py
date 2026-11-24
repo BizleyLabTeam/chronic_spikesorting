@@ -1,4 +1,5 @@
 from pathlib import Path
+import traceback
 import pandas as pd
 from itertools import product as combination_product
 
@@ -21,50 +22,48 @@ import neuropixels_chronic_spikesorting_Bizley.outerLoopConfigs as outerLoopConf
 import neuropixels_chronic_spikesorting_Bizley.all_VE_config as all_VE_config # this config file should be synced between all your VEs.
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.gatherSessionSetListForFerret import gatherSessionSetListForFerret
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySessionSetParameters import SpecifySessionSetParameters
+from config import get_configs, iter_selected_session_sets
+
+
+def report_failure(stage, session_name, error_file, error):
+    details = traceback.format_exc()
+    message = f"[{stage}] {session_name}: {type(error).__name__}: {error}\n{details}"
+    print(message, flush=True)
+    with open(error_file, "a", encoding="utf-8") as log:
+        log.write(message + "\n")
+
 
 def main():
+    _, run_config = get_configs()
+    sorting_config = run_config.get("sorting", {})
 
     ## these are a bunch of parameters you should set before running spikesorting which are hopefully named in a self-explanatory way.
-    saveMultirecInfoFile = True ### whether to save metadata. You'll only want to turn it off if you are testing a thing and don't want to overwrite an old file or something...
-    overwriteRaw = False # determines if you recreate a raw that is already detected. Set to true if you want to remake it, false otherwise.
-    overwriteChanMap = True # determines whether you overwrite the channel map. In my opinion this should always be on.
-    overwriteSpikesorting = False # determines whether you redo spikesortings that are already done. Overwrite when you try new things, don't sh
-    createCompressed = False # determines whether you create compressed raw. Good to do if you need the space, but all processing requires unpacking it.
-    doSpikeSorting = True
-    copyAuxData = False
-    overwriteAuxData = False
-    saveLFP = True ### saves an additional raw file which is focused on the LFP. Will be downsampled to 1000 Hz
-    overwriteLFP = True
+    saveMultirecInfoFile = sorting_config.get("save_multirecording_info", True)
+    overwriteRaw = sorting_config.get("overwrite_raw", False)
+    overwriteChanMap = sorting_config.get("overwrite_chan_map", True)
+    overwriteSpikesorting = sorting_config.get("overwrite_spikesorting", False)
+    createCompressed = sorting_config.get("create_compressed", False)
+    doSpikeSorting = sorting_config.get("do_spike_sorting", True)
+    copyAuxData = sorting_config.get("copy_aux_data", False)
+    overwriteAuxData = sorting_config.get("overwrite_aux_data", False)
+    saveLFP = sorting_config.get("save_lfp", False)
+    overwriteLFP = sorting_config.get("overwrite_lfp", True)
 
-    #get sessions within map
-    if all_VE_config.runOneSessionSetOldStyle:
-        if not all_VE_config.SurveyOverride: ### if not a survey...
-            NAS_SessionsWithinMap,Local_SessionsWithinMap = getSessionsWithinMap(outerLoopConfigs.NAS_SessionsInOrder,all_VE_config.NAS_session_path,all_VE_config.stream_id,all_VE_config.channel_map_to_use,outerLoopConfigs.Local_SessionsInOrder) ### possibly this just returns SessionsInOrder in a way resulting from a vestige. It used to get everything, but now... Anyway this can be marked for potential future deletion
-        else: ### if survey, the order doesn't actually matter, and they will probably be "in order" anyway.
-            NAS_SessionsWithinMap = outerLoopConfigs.NAS_SessionsInOrder
-            Local_SessionsWithinMap = outerLoopConfigs.Local_SessionsInOrder
-        toIterate = '' ### dummy variable
-        sessionSetParams['badChannelList'] = all_VE_config.badChannelList
-        sessionSetParams['channel_map_to_use'] = all_VE_config.channel_map_to_use
-        breakitonpurpose ### in order to make this backward compatable, all relevant all_VE_config variables need to be set as dict variables within sessionSetParams
-    else:
-        recordingZones = gatherSessionSetListForFerret(all_VE_config.ferret) ### still doing one ferret at a time. Though there is potential to iterate them... Don't really see a good reason to do so.
-
-        #sessionSetParams = SpecifySessionSetParameters(all_VE_config.ferret,SessionSetName,all_VE_config.regionLabels)
-        toIterate = list(combination_product([all_VE_config.ferret],recordingZones,all_VE_config.regionLabels)) ### this function seems nondeterministic?
-        toIterate = sorted(toIterate,key=lambda tup: tup[2]) ### first sort by region
-        toIterate = sorted(toIterate,key=lambda tup: tup[1]) ### then sort by session set.
-        pass
+    toIterate = list(iter_selected_session_sets())
+    toIterate = sorted(toIterate, key=lambda tup: tup[2])
+    toIterate = sorted(toIterate, key=lambda tup: tup[1])
     for ixixi,sessionSet in enumerate(toIterate):
-        if not all_VE_config.runOneSessionSetOldStyle:
-            sessionSetParams = SpecifySessionSetParameters(sessionSet[0],sessionSet[1],sessionSet[2])
-            NAS_SessionsWithinMap,Local_SessionsWithinMap = getSessionsWithinMapForSessionSet(sessionSetParams)
-            (all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2]).mkdir(parents=True, exist_ok=True)
-            if saveLFP:
-                LFP_sessionSet_folder =  all_VE_config.LFP_folder / sessionSet[0] / sessionSet[1] / sessionSet[2]
-                LFP_sessionSet_folder.mkdir(parents=True, exist_ok=True)
+        sessionSetParams = SpecifySessionSetParameters(sessionSet[0], sessionSet[1], sessionSet[2])
+        NAS_SessionsWithinMap, Local_SessionsWithinMap = getSessionsWithinMapForSessionSet(sessionSetParams)
+        nas_animal_path = sessionSetParams["nas_root"] / sessionSet[0]
+        local_animal_path = sessionSetParams["local_root"] / sessionSet[0]
+        output_folder = sessionSetParams["output_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2]
+        output_folder.mkdir(parents=True, exist_ok=True)
+        if saveLFP:
+            LFP_sessionSet_folder = sessionSetParams["lfp_root"] / sessionSet[0] / sessionSet[1] / sessionSet[2]
+            LFP_sessionSet_folder.mkdir(parents=True, exist_ok=True)
 
-            errorFileName =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / "errorTracking.txt"
+        errorFileName = output_folder / "errorTracking.txt"
         for i, session in enumerate(NAS_SessionsWithinMap):
             multirec_info = {'name': [],
                              'start_time': [],
@@ -78,14 +77,18 @@ def main():
             dict_of_recordings = {}
             session_name = session.name
 
-            print(f'Processing {session_name}')
+            print(f'Processing {session_name}', flush=True)
             imecFolderList = list(session.glob('*' + 'imec' + '*'))
+            print(f'  Found {len(imecFolderList)} probe folder(s); checking configured channel map', flush=True)
             metaFileData,usedImro,NASprobeFolder = getCorrectRecordingForRegion(imecFolderList,sessionSetParams['channel_map_to_use'],localData=False)
+            print(f'  Probe lookup complete (stream={usedImro!r})', flush=True)
             if metaFileData == None:
+                message = f"No recording found for channel map {sessionSetParams['channel_map_to_use']}"
+                print(f"  Skipping {session_name}: {message}", flush=True)
                 with open(errorFileName, "a") as f:
-                    print('no recording at ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f) ### might want to print things at additional locations...
+                    print(f"{session_name}: {message}", file=f)
                 continue # nothing to do here... ### TODO print to file. Probably today. Need to figure out everythin I want to print though.
-            local_probeFolder = all_VE_config.local_session_path / Path(*NASprobeFolder.parts[-2:]) ### this is a local version of the top-evel folder of the spikeglx session
+            local_probeFolder = local_animal_path / Path(*NASprobeFolder.parts[-2:])
             local_probeFolder.mkdir(parents=True, exist_ok=True)
             if copyAuxData:
                 if (not any(list(local_probeFolder.parent.glob('*.bin')))) | overwriteAuxData:
@@ -98,40 +101,42 @@ def main():
                 pass
             rawFolderName = local_probeFolder / Path('catgt_CorrectedRaw')
             if outerLoopConfigs.doSaturationReplace:
-                NASrecording = si.read_spikeglx(NASprobeFolder, stream_id=usedImro)
                 try:
+                    print('  Reading recording for saturation detection', flush=True)
+                    NASrecording = si.read_spikeglx(NASprobeFolder, stream_id=usedImro)
                     windowsToSilenceArray = nullify_saturations(NASrecording, local_probeFolder=local_probeFolder) ### a numpy array with sample ranges that we want to exclude. Will be input into OverStrike later.
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('saturation detection failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
-                        continue
+                except Exception as exc:
+                    report_failure("Saturation detection", session_name, errorFileName, exc)
+                    continue
             if (not any((list(rawFolderName.glob('*.bin'))))) | overwriteRaw: # if you don't have a raw or you say you want to overwrite it, we make a new raw.
                 try:
-                    makeAndProcessRaw(NAS_session_path = all_VE_config.NAS_session_path,session_name=session_name,stream_id=usedImro,local_session_path=all_VE_config.local_session_path,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,rawFolderName=rawFolderName,overwriteRaw = overwriteRaw,createCompressed = createCompressed)
+                    print(f'  Creating preprocessed raw at {rawFolderName}', flush=True)
+                    makeAndProcessRaw(NAS_session_path=nas_animal_path,session_name=session_name,stream_id=usedImro,local_session_path=local_animal_path,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,rawFolderName=rawFolderName,overwriteRaw=overwriteRaw,createCompressed=createCompressed)
                     if outerLoopConfigs.doSaturationReplace: # requires saying you will overwrite. I hope that is natural.
                         applyOverStrike(list(rawFolderName.glob('*.bin'))[0],outerLoopConfigs.OverStrike_location,windowsToSilenceArray)
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('preprocessed raw creation failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
-                        continue
+                except Exception as exc:
+                    report_failure("Preprocessed raw creation", session_name, errorFileName, exc)
+                    continue
             if saveLFP:
                 LFP_session_folder = LFP_sessionSet_folder / session_name
                 LFP_session_folder.mkdir(parents=True, exist_ok=True)
                 try:
                     if (not any((list(LFP_session_folder.glob('*.bin'))))) | overwriteLFP:
-                        getLFP(NAS_session_path = all_VE_config.NAS_session_path,session_name=session_name,stream_id=usedImro,LFP_session_folder=LFP_session_folder,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,overwriteLFP = overwriteLFP,doSaturationReplace = outerLoopConfigs.doSaturationReplace,windowsToSilenceArray=windowsToSilenceArray)
+                        print(f'  Creating LFP output at {LFP_session_folder}', flush=True)
+                        getLFP(NAS_session_path=nas_animal_path,session_name=session_name,stream_id=usedImro,LFP_session_folder=LFP_session_folder,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,overwriteLFP=overwriteLFP,doSaturationReplace=outerLoopConfigs.doSaturationReplace,windowsToSilenceArray=windowsToSilenceArray)
 
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('LFP creation failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
+                except Exception as exc:
+                    report_failure("LFP creation", session_name, errorFileName, exc)
 
                 pass
+            print('  Reading preprocessed recording metadata', flush=True)
             recording = si.read_spikeglx(rawFolderName, stream_id=usedImro) ### use si just to read the meta file.
 
 
             ### preparing some things specifically for ks spikesorting
 
-            settings = {'n_chan_bin': len(recording.channel_ids)+1} ### set settings dictionary, including required nchan_bin which should be correct as written.
+            settings = {'n_chan_bin': len(recording.channel_ids) + sorting_config.get("n_chan_bin_extra", 1)}
+            settings.update(sorting_config.get("kilosort_settings", {}))
 
             ### code up to chanMap.json being saved copied from spikeinterface.
             groups = recording.get_channel_groups()
@@ -154,7 +159,7 @@ def main():
                 "kcoords": kcoords,
                 "n_chan": n_chan,
             }
-            sorter_output_folder =  all_VE_config.output_folder / sessionSet[0] / sessionSet[1] / sessionSet[2] / session_name
+            sorter_output_folder = output_folder / session_name
             probe_name = sorter_output_folder / Path("chanMap.json")  ### I still need to figure out how to automatically generate this file. When I do, I can save it into "inputs" somewhere.
             if (not probe_name.is_file())|(overwriteChanMap):
                 ks.io.save_probe(probe, str(sorter_output_folder / "chanMap.json"))
@@ -194,16 +199,30 @@ def main():
             ### note I am currently focusing cpu us
             if doSpikeSorting&((overwriteSpikesorting)|(not any(list(sorter_output_folder.glob('params.py'))))): ### overwrite will currently not remove bombcell results and such from the folder. It should.
                 try:
-                    ks.run_kilosort(settings, probe=None, probe_name=probe_name, filename=None,
-                         data_dir=rawFolderName, file_object=None, results_dir=sorter_output_folder,
-                         data_dtype=None, do_CAR=True, invert_sign=False, device=None,
-                         progress_bar=None, save_extra_vars=True, clear_cache=False,
-                         save_preprocessed_copy=False, bad_channels=None, shank_idx=None,
-                         verbose_console=True, verbose_log=True, torch_thread_lim=None)
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('spikesorting failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
+                    print(f'  Starting Kilosort; results will be written to {sorter_output_folder}', flush=True)
+                    kilosort_kwargs = dict(sorting_config.get("kilosort_kwargs", {}))
+                    kilosort_kwargs.update({
+                        "probe": kilosort_kwargs.get("probe"),
+                        "probe_name": probe_name,
+                        "filename": kilosort_kwargs.get("filename"),
+                        "data_dir": rawFolderName,
+                        "file_object": kilosort_kwargs.get("file_object"),
+                        "results_dir": sorter_output_folder,
+                    })
+                    ks.run_kilosort(settings, **kilosort_kwargs)
+                except Exception as exc:
+                    report_failure("Kilosort", session_name, errorFileName, exc)
 
 
 if __name__ == '__main__':
-    main()
+    from config import configure_from_cli
+    configure_from_cli()
+    if 'outerLoopConfigs' in globals():
+        import importlib
+        importlib.reload(outerLoopConfigs)
+    try:
+        main()
+    except Exception:
+        print("spikesort_folder.py stopped due to an uncaught error:", flush=True)
+        traceback.print_exc()
+        raise
