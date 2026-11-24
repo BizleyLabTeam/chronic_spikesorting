@@ -1,4 +1,5 @@
 from pathlib import Path
+import traceback
 import pandas as pd
 from itertools import product as combination_product
 
@@ -22,6 +23,15 @@ import neuropixels_chronic_spikesorting_Bizley.all_VE_config as all_VE_config # 
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.gatherSessionSetListForFerret import gatherSessionSetListForFerret
 from neuropixels_chronic_spikesorting_Bizley.sessionSetManagement.SpecifySessionSetParameters import SpecifySessionSetParameters
 from config import get_configs, iter_selected_session_sets
+
+
+def report_failure(stage, session_name, error_file, error):
+    details = traceback.format_exc()
+    message = f"[{stage}] {session_name}: {type(error).__name__}: {error}\n{details}"
+    print(message, flush=True)
+    with open(error_file, "a", encoding="utf-8") as log:
+        log.write(message + "\n")
+
 
 def main():
     _, run_config = get_configs()
@@ -67,12 +77,16 @@ def main():
             dict_of_recordings = {}
             session_name = session.name
 
-            print(f'Processing {session_name}')
+            print(f'Processing {session_name}', flush=True)
             imecFolderList = list(session.glob('*' + 'imec' + '*'))
+            print(f'  Found {len(imecFolderList)} probe folder(s); checking configured channel map', flush=True)
             metaFileData,usedImro,NASprobeFolder = getCorrectRecordingForRegion(imecFolderList,sessionSetParams['channel_map_to_use'],localData=False)
+            print(f'  Probe lookup complete (stream={usedImro!r})', flush=True)
             if metaFileData == None:
+                message = f"No recording found for channel map {sessionSetParams['channel_map_to_use']}"
+                print(f"  Skipping {session_name}: {message}", flush=True)
                 with open(errorFileName, "a") as f:
-                    print('no recording at ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f) ### might want to print things at additional locations...
+                    print(f"{session_name}: {message}", file=f)
                 continue # nothing to do here... ### TODO print to file. Probably today. Need to figure out everythin I want to print though.
             local_probeFolder = local_animal_path / Path(*NASprobeFolder.parts[-2:])
             local_probeFolder.mkdir(parents=True, exist_ok=True)
@@ -87,34 +101,35 @@ def main():
                 pass
             rawFolderName = local_probeFolder / Path('catgt_CorrectedRaw')
             if outerLoopConfigs.doSaturationReplace:
-                NASrecording = si.read_spikeglx(NASprobeFolder, stream_id=usedImro)
                 try:
+                    print('  Reading recording for saturation detection', flush=True)
+                    NASrecording = si.read_spikeglx(NASprobeFolder, stream_id=usedImro)
                     windowsToSilenceArray = nullify_saturations(NASrecording, local_probeFolder=local_probeFolder) ### a numpy array with sample ranges that we want to exclude. Will be input into OverStrike later.
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('saturation detection failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
-                        continue
+                except Exception as exc:
+                    report_failure("Saturation detection", session_name, errorFileName, exc)
+                    continue
             if (not any((list(rawFolderName.glob('*.bin'))))) | overwriteRaw: # if you don't have a raw or you say you want to overwrite it, we make a new raw.
                 try:
+                    print(f'  Creating preprocessed raw at {rawFolderName}', flush=True)
                     makeAndProcessRaw(NAS_session_path=nas_animal_path,session_name=session_name,stream_id=usedImro,local_session_path=local_animal_path,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,rawFolderName=rawFolderName,overwriteRaw=overwriteRaw,createCompressed=createCompressed)
                     if outerLoopConfigs.doSaturationReplace: # requires saying you will overwrite. I hope that is natural.
                         applyOverStrike(list(rawFolderName.glob('*.bin'))[0],outerLoopConfigs.OverStrike_location,windowsToSilenceArray)
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('preprocessed raw creation failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
-                        continue
+                except Exception as exc:
+                    report_failure("Preprocessed raw creation", session_name, errorFileName, exc)
+                    continue
             if saveLFP:
                 LFP_session_folder = LFP_sessionSet_folder / session_name
                 LFP_session_folder.mkdir(parents=True, exist_ok=True)
                 try:
                     if (not any((list(LFP_session_folder.glob('*.bin'))))) | overwriteLFP:
+                        print(f'  Creating LFP output at {LFP_session_folder}', flush=True)
                         getLFP(NAS_session_path=nas_animal_path,session_name=session_name,stream_id=usedImro,LFP_session_folder=LFP_session_folder,badChannelList=sessionSetParams['badChannelList'],catgt_location=outerLoopConfigs.catgt_location,overwriteLFP=overwriteLFP,doSaturationReplace=outerLoopConfigs.doSaturationReplace,windowsToSilenceArray=windowsToSilenceArray)
 
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('LFP creation failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
+                except Exception as exc:
+                    report_failure("LFP creation", session_name, errorFileName, exc)
 
                 pass
+            print('  Reading preprocessed recording metadata', flush=True)
             recording = si.read_spikeglx(rawFolderName, stream_id=usedImro) ### use si just to read the meta file.
 
 
@@ -184,6 +199,7 @@ def main():
             ### note I am currently focusing cpu us
             if doSpikeSorting&((overwriteSpikesorting)|(not any(list(sorter_output_folder.glob('params.py'))))): ### overwrite will currently not remove bombcell results and such from the folder. It should.
                 try:
+                    print(f'  Starting Kilosort; results will be written to {sorter_output_folder}', flush=True)
                     kilosort_kwargs = dict(sorting_config.get("kilosort_kwargs", {}))
                     kilosort_kwargs.update({
                         "probe": kilosort_kwargs.get("probe"),
@@ -194,9 +210,8 @@ def main():
                         "results_dir": sorter_output_folder,
                     })
                     ks.run_kilosort(settings, **kilosort_kwargs)
-                except:
-                    with open(errorFileName, "a") as f:
-                        print('spikesorting failed for ' + session_name + ' for ' + sessionSetParams['channel_map_to_use'], file=f)
+                except Exception as exc:
+                    report_failure("Kilosort", session_name, errorFileName, exc)
 
 
 if __name__ == '__main__':
@@ -205,4 +220,9 @@ if __name__ == '__main__':
     if 'outerLoopConfigs' in globals():
         import importlib
         importlib.reload(outerLoopConfigs)
-    main()
+    try:
+        main()
+    except Exception:
+        print("spikesort_folder.py stopped due to an uncaught error:", flush=True)
+        traceback.print_exc()
+        raise

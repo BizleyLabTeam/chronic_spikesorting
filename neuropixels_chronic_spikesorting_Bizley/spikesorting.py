@@ -11,6 +11,48 @@ import pickle
 import shutil
 import subprocess
 
+
+def _run_catgt_batch(catgt_location, batch_file, arguments):
+    """Run a CatGT batch file with arguments safely quoted for Windows paths."""
+    catgt_dir = Path(catgt_location).expanduser().resolve()
+    batch_path = Path(batch_file)
+    if not batch_path.is_absolute():
+        batch_path = catgt_dir / batch_path
+    batch_path = batch_path.resolve()
+    if not batch_path.is_file():
+        raise FileNotFoundError(f"CatGT batch file not found: {batch_path}")
+
+    # .bat files must be launched through cmd.exe. Quote every argument so
+    # paths containing spaces remain a single argument after cmd parses them.
+    command = "call " + subprocess.list2cmdline([str(batch_path), *map(str, arguments)])
+    print(f"  Running CatGT batch file: {batch_path}", flush=True)
+    log_path = catgt_dir / "CatGT.log"
+    previous_log_mtime = log_path.stat().st_mtime_ns if log_path.exists() else None
+    try:
+        subprocess.run(command, cwd=catgt_dir, shell=True, check=True)
+    except subprocess.CalledProcessError:
+        if log_path.is_file() and log_path.stat().st_mtime_ns != previous_log_mtime:
+            recent_log = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+            print("  Recent CatGT.log entries:", flush=True)
+            print("\n".join(recent_log), flush=True)
+        else:
+            print(f"  CatGT did not update its log; check {log_path}", flush=True)
+        raise
+
+
+def _run_tool(executable, tool_directory, arguments):
+    """Run a configured executable without shell parsing its file arguments."""
+    executable_path = Path(executable)
+    if not executable_path.is_absolute():
+        executable_path = Path(tool_directory) / executable_path
+    if not executable_path.is_file() and not executable_path.suffix:
+        executable_path = executable_path.with_suffix(".exe")
+    command = [str(executable_path), *map(str, arguments)] if executable_path.is_file() else [
+        str(executable), *map(str, arguments)
+    ]
+    subprocess.run(command, cwd=tool_directory, check=True)
+
+
 def spikeglx_visualize(recording):
     #At the moment, a function designed to be break-pointed into.
     #Basically I just want a venue to look at data in ways I want.
@@ -63,7 +105,7 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
     g_string = '-g=' + session_name[-1] ### the number next to g. Almost always 0, unless an error happened.
     dest_string = '-dest=' + str(local_session_path)
     CMR_string = catgt.get("common_reference", "-gblcar")
-    filter_string = '-apfilter="{}"'.format(catgt.get("ap_filter", "butter,12,300,6000"))
+    filter_string = '-apfilter={}'.format(catgt.get("ap_filter", "butter,12,300,6000"))
     #gfix_string = '-gfix=' ### this is the catgt style saturation replacement. I probably won't use it because I prefer the one I wrote, to be honest.
 
     ## make -save string, which is a bit more involved... This is the thing that remove bad channels.
@@ -72,14 +114,19 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
     channelsToKeep_listStyle = np.setdiff1d(np.arange(0, catgt.get("n_channels_total", 385)), np.asarray(badChannelList)).tolist()
     channelsToKeepString = str(channelsToKeep_listStyle)[1:-1].replace(" ", "") ### I list them all one by one, excluding the ones we said to exclude.
     save_string = '-save=' + js + ',' + prb_string[-1] + ',' + out_streamid_num + ',' + channelsToKeepString ### the "-save" argument wants you to put js, in-imec-num, out-imec-num first before all the channels you want to save.
-    chnexcl_string = '-chnexcl={'+stream_id[-4]+';'+str(badChannelList)[1:-1].replace(" ", "")+'} ' ### we also need to say we are excluding channels, because they do seperate things. save_string is about which channels you save, but this one is about which channels are exlcuded from thing like the CAR.
+    chnexcl_string = (
+        '-chnexcl={' + stream_id[-4] + ';' + str(badChannelList)[1:-1].replace(" ", "") + '}'
+        if badChannelList else None
+    )
 
-    catgt_command = ' '.join([
-        tools.get("catgt_batch_file", "runit.bat"), dir_string, run_string, g_string,
+    catgt_arguments = [
+        dir_string, run_string, g_string,
         f'-t={catgt.get("time_range", 0)}', catgt.get("ap_flag", "-ap"), prb_string,
-        dest_string, catgt.get("probe_folder_flag", "-prb_fld"), chnexcl_string,
+        dest_string, catgt.get("probe_folder_flag", "-prb_fld"),
         save_string, CMR_string, filter_string,
-    ])
+    ]
+    if chnexcl_string:
+        catgt_arguments.append(chnexcl_string)
 
     catgt_output_folder_path = local_session_path / Path('catgt_' + session_name)
 
@@ -87,8 +134,7 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
         shutil.rmtree(catgt_output_folder_path) ### if an error happens, this folder may already exist... I believe it makes things hang when you allow it...
 
 
-    run_in_path = str(catgt_location) + '\\' + catgt_command
-    subprocess.Popen(run_in_path).wait() ### this actually runs the command.
+    _run_catgt_batch(catgt_location, tools.get("catgt_batch_file", "runit.bat"), catgt_arguments)
 
     pass
 
@@ -101,17 +147,24 @@ def makeAndProcessRaw(NAS_session_path,session_name,stream_id,local_session_path
     found_SR = run_config["sampling"].get("np_fs", 30000)
 
 
-    binFileFullpath = list(catgt_output_folder_path.glob('*.bin'))[0] ### only should work if there is one bin file, but there always should be in normal use.
-    metaFileFullpath = list(catgt_output_folder_path.glob('*.meta'))[0]
+    bin_files = list(catgt_output_folder_path.glob('*.bin'))
+    meta_files = list(catgt_output_folder_path.glob('*.meta'))
+    if not bin_files or not meta_files:
+        raise FileNotFoundError(
+            f"CatGT completed but expected .bin and .meta files were not found in "
+            f"{catgt_output_folder_path}. Check the CatGT output above and the configured paths."
+        )
+    binFileFullpath = bin_files[0]
+    metaFileFullpath = meta_files[0]
 
 
 
     if createCompressed:
-        mtscomp_command = '{} {} -n {} -s {} -d {}'.format(
-            catgt.get("compressor_executable", "mtscomp"), binFileFullpath,
-            len(channelsToKeep_listStyle), found_SR, catgt.get("compression_dtype", "int16"),
+        _run_tool(
+            catgt.get("compressor_executable", "mtscomp"), catgt_location,
+            [str(binFileFullpath), "-n", str(len(channelsToKeep_listStyle)), "-s", str(found_SR),
+             "-d", str(catgt.get("compression_dtype", "int16"))],
         )
-        subprocess.Popen(mtscomp_command).wait()
 
     ### then delete the raw that existed before compression
         ### (let's not actually do this to start with, I want to compare them...)
@@ -142,7 +195,7 @@ def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannel
     dest_string = '-dest=' + str(LFP_session_folder)
     CMR_string = '' ### Pretty sure we don't want this for LFP
     # filter_string = '-lffilter="butter,12,0.5,500"' # filter stopbands based on spikeGLX defaults...
-    filter_string = '-lffilter="{}"'.format(catgt.get("lf_filter", "butter,12,0,400"))
+    filter_string = '-lffilter={}'.format(catgt.get("lf_filter", "butter,12,0,400"))
     # filter_string = '-lffilter="biquad,2,0.5,500"' # filter stopbands based on spikeGLX defaults...
     ap2lf_dwnsmp_string ='-ap2lf_dwnsmp=' + str(downsampleFactor)
 
@@ -152,14 +205,19 @@ def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannel
     channelsToKeep_listStyle = np.setdiff1d(np.arange(0, catgt.get("n_channels_total", 385)), np.asarray(badChannelList)).tolist()
     channelsToKeepString = str(channelsToKeep_listStyle)[1:-1].replace(" ", "") ### I list them all one by one, excluding the ones we said to exclude.
     save_string = '-save=' + js + ',' + prb_string[-1] + ',' + out_streamid_num + ',' + channelsToKeepString ### the "-save" argument wants you to put js, in-imec-num, out-imec-num first before all the channels you want to save.
-    chnexcl_string = '-chnexcl={'+stream_id[-4]+';'+str(badChannelList)[1:-1].replace(" ", "")+'} ' ### we also need to say we are excluding channels, because they do seperate things. save_string is about which channels you save, but this one is about which channels are exlcuded from thing like the CAR.
+    chnexcl_string = (
+        '-chnexcl={' + stream_id[-4] + ';' + str(badChannelList)[1:-1].replace(" ", "") + '}'
+        if badChannelList else None
+    )
 
-    catgt_command = ' '.join([
-        tools.get("catgt_batch_file", "runit.bat"), dir_string, run_string, g_string,
+    catgt_arguments = [
+        dir_string, run_string, g_string,
         f'-t={catgt.get("time_range", 0)}', catgt.get("lf_flag", "-lf"), prb_string,
-        dest_string, catgt.get("probe_folder_flag", "-prb_fld"), chnexcl_string,
+        dest_string, catgt.get("probe_folder_flag", "-prb_fld"),
         save_string, CMR_string, filter_string, ap2lf_dwnsmp_string,
-    ])
+    ]
+    if chnexcl_string:
+        catgt_arguments.append(chnexcl_string)
 
     catgt_output_folder_path = LFP_session_folder / Path('catgt_' + session_name) ### This is an autogenerated folder and I might even get rid of it...
 
@@ -170,33 +228,33 @@ def getLFP(NAS_session_path,session_name,stream_id,LFP_session_folder,badChannel
         shutil.rmtree(LFP_session_folder)
         LFP_session_folder.mkdir(parents=True, exist_ok=True)
 
-    run_in_path = str(catgt_location) + '\\' + catgt_command
-    subprocess.Popen(run_in_path).wait() ### this actually runs the command.
+    _run_catgt_batch(catgt_location, tools.get("catgt_batch_file", "runit.bat"), catgt_arguments)
 
     pass
 
     ### then move everything remaining in the folder
     if LFP_session_folder.exists():
+        if not catgt_output_folder_path.is_dir():
+            raise FileNotFoundError(f"CatGT LFP output folder was not created: {catgt_output_folder_path}")
         files = os.listdir(catgt_output_folder_path)
         for file in files:
             file_name = os.path.join(catgt_output_folder_path, file)
             shutil.move(file_name, LFP_session_folder)
         shutil.rmtree(catgt_output_folder_path) ### this looks scary but the data we just created is in a different folder. We delete whatever is already in the place we want to move that
 
-    rawFileName = list(LFP_session_folder.glob('*.bin'))[0]
+    lfp_bin_files = list(LFP_session_folder.glob('*.bin'))
+    if not lfp_bin_files:
+        raise FileNotFoundError(f"CatGT did not produce an LFP .bin file in {LFP_session_folder}")
+    rawFileName = lfp_bin_files[0]
 
-    file_string = '-file=' + '"' + str(rawFileName) + '"'
-    linefill_string = '-linefill' ### make a blank string if you don't want.
+    linefill_args = ["-linefill"] if catgt.get("overstrike_linefill", True) else []
     if doSaturationReplace:
         for i, currentWindow in enumerate(windowsToSilenceArray):
-            samps_string = '-samp="' + str(int(np.floor(currentWindow[0]/downsampleFactor))) + "," + str(int(np.ceil(currentWindow[1]/downsampleFactor))) + '"'
-            overStrikeCommand = 'OverStrike ' + file_string + ' ' + samps_string + ' ' + linefill_string
-            overstrike_command = '{} {} {} {}'.format(
-                catgt.get("overstrike_executable", "OverStrike"), file_string, samps_string,
-                '-linefill' if catgt.get("overstrike_linefill", True) else '',
+            sample_range = f"{int(np.floor(currentWindow[0] / downsampleFactor))},{int(np.ceil(currentWindow[1] / downsampleFactor))}"
+            _run_tool(
+                catgt.get("overstrike_executable", "OverStrike"), tools["overstrike_location"],
+                [f"-file={rawFileName}", f"-samp={sample_range}", *linefill_args],
             )
-            run_in_path = str(tools["overstrike_location"]) + '\\' + overstrike_command
-            subprocess.Popen(run_in_path).wait()
             pass
 
 def preprocessing_for_drift_correction(recording,doRemoveBadChannels=None,local_probeFolder=None,badChannelList=None,doSaturationReplace=None,silenceOrNoiseReplace=None,floatDataTypeForDriftCorrection=False):
@@ -395,18 +453,43 @@ def nullify_saturations(recording,surrondingToAlsoNullify=None,local_probeFolder
         if (not (windowsToSilenceArray.ndim == 2))&(windowsToSilenceArray.shape[0]==2):
             windowsToSilenceArray = windowsToSilenceArray.reshape(1, 2)
     else:
-        nullSat_init_args = (
-            recording, surrondingToAlsoNullify, saturation.get("abs_min", -1900),
-            saturation.get("abs_max", 1900), saturation.get("fraction_channels", 0.1),
+        # ChunkRecordingExecutor has moved between SpikeInterface releases and
+        # is not exposed consistently. Iterate over recording chunks directly
+        # so saturation detection works across the versions used by the lab.
+        chunk_size = int(saturation.get("chunk_size", 30000))
+        if chunk_size <= 0:
+            raise ValueError("saturation.chunk_size must be a positive number of samples")
+        if saturation.get("n_jobs", 1) != 1:
+            print("  Saturation detection is using one worker because this SpikeInterface version has no compatible chunk executor.", flush=True)
+        worker_ctx = nullify_saturations_init_func(
+            recording,
+            surrondingToAlsoNullify,
+            saturation.get("abs_min", -1900),
+            saturation.get("abs_max", 1900),
+            saturation.get("fraction_channels", 0.1),
         )
-        nullSat = si.ChunkRecordingExecutor(
-            recording, func=nullify_saturations_loopImplementation,
-            init_func=nullify_saturations_init_func, init_args=nullSat_init_args,
-            n_jobs=saturation.get("n_jobs", 1),
-            chunk_size=saturation.get("chunk_size", 30000),
-            handle_returns=True, progress_bar=saturation.get("progress_bar", True),
+        windowsToSilence = []
+        total_chunks = sum(
+            (recording.get_num_frames(segment_index=segment_index) + chunk_size - 1) // chunk_size
+            for segment_index in range(recording.get_num_segments())
         )
-        windowsToSilence = nullSat.run()
+        completed_chunks = 0
+        for segment_index in range(recording.get_num_segments()):
+            num_frames = recording.get_num_frames(segment_index=segment_index)
+            for frame_start in range(0, num_frames, chunk_size):
+                frame_stop = min(frame_start + chunk_size, num_frames)
+                windowsToSilence.append(
+                    nullify_saturations_loopImplementation(
+                        segment_index, frame_start, frame_stop, worker_ctx
+                    )
+                )
+                completed_chunks += 1
+                if saturation.get("progress_bar", True):
+                    print(
+                        f"\r  Saturation scan: {completed_chunks}/{total_chunks} chunks",
+                        end="\n" if completed_chunks == total_chunks else "",
+                        flush=True,
+                    )
         windowsToSilenceArray = np.zeros((0,2))
         for chunkSet in windowsToSilence: # yes it's silly to do this afterward instead of during, but it's really not a big deal. Default function outputs list.
             windowsToSilenceArray = np.concatenate((windowsToSilenceArray,chunkSet))
@@ -420,13 +503,13 @@ def nullify_saturations(recording,surrondingToAlsoNullify=None,local_probeFolder
 def applyOverStrike(rawFileName,OverStrike_location,windowsToSilenceArray):
     run_config = get_configs()[1]
     catgt = run_config["catgt"]
-    file_string = '-file=' + '"' + str(rawFileName) + '"'
-    linefill_string = '-linefill' if catgt.get("overstrike_linefill", True) else ''
+    linefill_args = ["-linefill"] if catgt.get("overstrike_linefill", True) else []
     for i, currentWindow in enumerate(windowsToSilenceArray):
-        samps_string = '-samp="' + str(int(currentWindow[0])) + "," + str(int(currentWindow[1])) + '"'
-        overStrikeCommand = catgt.get("overstrike_executable", "OverStrike") + ' ' + file_string + ' ' + samps_string + ' ' + linefill_string
-        run_in_path = str(OverStrike_location) + '\\' + overStrikeCommand
-        subprocess.Popen(run_in_path).wait()
+        sample_range = f"{int(currentWindow[0])},{int(currentWindow[1])}"
+        _run_tool(
+            catgt.get("overstrike_executable", "OverStrike"), OverStrike_location,
+            [f"-file={rawFileName}", f"-samp={sample_range}", *linefill_args],
+        )
         pass
 
 def nullify_saturations_init_func(recording,surrondingToAlsoNullify,abs_sat_min=-1900,abs_sat_max=1900,fraction_channels=0.1):

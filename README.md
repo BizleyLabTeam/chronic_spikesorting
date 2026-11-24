@@ -59,6 +59,8 @@ The pipeline reads two YAML files from the `config` folder:
 
 Edit the paths in those files for your computer. Data paths and the CatGT/OverStrike locations can be absolute or relative to their YAML file. Set `recording_format` in the data config; SpikeGLX is currently supported. `date_end` is an exclusive upper bound. Select work by editing `session_sets_to_run`; session metadata is stored under `session_sets` by animal and set, with per-region stream IDs, channel maps, and bad channels.
 
+CatGT filter strings specify the high-pass cutoff followed by the low-pass cutoff: use `butter,12,300,6000` for 300–6000 Hz AP filtering and `butter,12,0,400` for 0–400 Hz LF filtering.
+
 The command line scripts accept explicit configuration paths:
 
 ```text

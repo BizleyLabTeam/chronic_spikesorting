@@ -13,21 +13,21 @@ recording_format: spikeglx
 # Session folder matching beneath paths.nas_root / animal.
 # Use AM, PM, or both for period. The template supports {animal}, {animal_label}, {date}, and {period}.
 session_discovery:
-  period: both
+  period: AM
   folder_glob: "{animal_label}_*{date}*_{period}_g0"
 survey_override: false
 session_sets_to_run:
-  F2406_Chevre: [SessionSet01]
+  F2501_Maple: [SessionSet02]
 
 # Use an explicit list of session folder prefixes or ISO date ranges (end exclusive).
 # Each session set can contain multiple regions, and many sets can be selected above.
 session_sets:
   F2501_Maple:
-    SessionSet01:
+    SessionSet02:
       animal_label: Maple
       notes: "test session just to see what works"
-      date_start: "2026-09-30"
-      date_end: "2026-10-01"
+      date_start: "2026-09-21"
+      date_end: "2026-09-22"
       regions:
         AC: {stream_id: imec0.ap, channel_map: Maple_n05_thalamus01Ctx4.imro, bad_channels: []}    
   F2302_Challah:

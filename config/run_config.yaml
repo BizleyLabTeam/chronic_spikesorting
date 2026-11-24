@@ -16,6 +16,7 @@ catgt:
   ap_flag: -ap
   lf_flag: -lf
   common_reference: -gblcar
+  # CatGT expects high-pass cutoff then low-pass cutoff.
   ap_filter: butter,12,300,6000
   lf_filter: butter,12,0,400
   lf_downsample_factor: 30
