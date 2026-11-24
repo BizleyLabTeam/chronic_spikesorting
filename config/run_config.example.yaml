@@ -1,4 +1,5 @@
-# Processing settings shared by runs. Paths are relative to this file or absolute.
+# Copy this file to run_config.yaml and adjust processing settings as needed.
+# Tool locations are resolved relative to this file; these paths use the bundled tools.
 tools:
   catgt_location: ../CatGT-win
   catgt_batch_file: runit.bat
@@ -16,7 +17,7 @@ catgt:
   ap_flag: -ap
   lf_flag: -lf
   common_reference: -gblcar
-  # CatGT expects high-pass cutoff then low-pass cutoff.
+  # CatGT expects the high-pass cutoff followed by the low-pass cutoff.
   ap_filter: butter,12,300,6000
   lf_filter: butter,12,0,400
   lf_downsample_factor: 30
