@@ -6,6 +6,8 @@
 *.png
 *.tiff
 *.ipynb
+__pycache__/
+*.py[cod]
 
 src
 config/personal
