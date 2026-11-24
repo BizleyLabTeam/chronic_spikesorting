@@ -139,3 +139,9 @@ legacy_spikeinterface:
   chunk_duration: 1s
   create_sparse_analyzer: true
   compute_pc_features: false
+
+bombcell:
+  kilosort_version: 4
+  reload_existing_results: false
+  skip_if_already_done: true
+  plot_with_breakpoints: false
